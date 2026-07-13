@@ -14,7 +14,9 @@ export const ThemeProvider = ({ children }) => {
     if (saved) {
       return saved === 'dark';
     }
-    return window.matchMedia('(prefers-color-scheme: dark)').matches;
+    // Default to light mode when the user hasn't chosen a theme yet (ignore the
+    // OS preference). Users who toggle keep their choice via localStorage.
+    return false;
   });
 
   useEffect(() => {
