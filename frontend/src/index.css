@@ -1,0 +1,85 @@
+@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Inter:wght@300;400;500;600;700&display=swap');
+@config "../tailwind.config.js";
+
+@layer base {
+  body {
+    @apply bg-slate-50 text-slate-900 font-sans antialiased transition-colors duration-200;
+  }
+  
+  body.dark {
+    @apply bg-darkBg text-slate-200;
+  }
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-slate-300/60 rounded-full;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  @apply bg-slate-800;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-slate-400/80;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  @apply bg-slate-700;
+}
+
+/* Glassmorphism */
+.glass-card {
+  @apply bg-white/80 backdrop-blur-md border border-slate-200/60 shadow-premium;
+}
+
+.dark .glass-card {
+  @apply bg-darkCard/80 backdrop-blur-md border-darkBorder/60 shadow-premium-dark;
+}
+
+/* Custom Kanban animations */
+.kanban-column {
+  min-height: calc(100vh - 280px);
+}
+
+.custom-gradient-text {
+  @apply bg-clip-text text-transparent bg-gradient-to-r from-brand-600 to-indigo-600;
+}
+
+.dark .custom-gradient-text {
+  @apply bg-clip-text text-transparent bg-gradient-to-r from-brand-400 to-indigo-400;
+}
+
+/* Theme toggle: circular wave reveal via the View Transitions API.
+   Disable the default cross-fade; the JS animates a clip-path on one layer. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+
+/* Going to dark: the new (dark) layer expands on top. */
+html[data-theme-transition='to-dark']::view-transition-new(root) {
+  z-index: 9999;
+}
+html[data-theme-transition='to-dark']::view-transition-old(root) {
+  z-index: 1;
+}
+
+/* Going to light: the old (dark) layer stays on top and shrinks away. */
+html[data-theme-transition='to-light']::view-transition-old(root) {
+  z-index: 9999;
+}
+html[data-theme-transition='to-light']::view-transition-new(root) {
+  z-index: 1;
+}
