@@ -6,6 +6,16 @@ const dotenv = require('dotenv');
 // Load environment variables
 dotenv.config();
 
+// Resilience: a stray unhandled promise rejection would otherwise crash the
+// Node process (Node 15+), which surfaces to clients as a 502 from Render and
+// restarts the server. Log it instead and keep serving.
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled promise rejection (kept alive):', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught exception (kept alive):', err);
+});
+
 // Verify the Supabase (Postgres) data layer is configured. Loading the client
 // module logs a fatal error if the env vars are missing; queries then throw a
 // clear message rather than failing silently.

@@ -166,19 +166,12 @@ exports.updateSettings = async (req, res) => {
 
     const settings = await SettingsRepo.update(patch, req.user.id);
 
-    // When a working key was just set, fetch the models it can use so the UI can
-    // immediately offer a picker.
-    let availableModels;
-    if (aiUpdate && aiUpdate.aiApiKey) {
-      try {
-        availableModels = await AIService.listModels(aiUpdate.aiApiKey, aiUpdate.aiProvider);
-      } catch (err) {
-        console.error('List models after save failed:', err.message);
-        availableModels = [];
-      }
-    }
-
-    return res.json({ success: true, data: sanitizeSettings(settings, req.user.role === 'Admin'), availableModels });
+    // Note: we intentionally do NOT fetch the model list here. Saving already
+    // makes one external call (validateKey); a second call (listModels) added
+    // latency and a failure/timeout point on small hosts (observed as 502s on
+    // Render free tier). The UI populates the picker via the preview endpoint
+    // when the key is entered, and via GET /settings/models on load.
+    return res.json({ success: true, data: sanitizeSettings(settings, req.user.role === 'Admin') });
   } catch (error) {
     console.error('Update settings error:', error);
     return res.status(500).json({ success: false, message: 'Server error updating configurations' });
