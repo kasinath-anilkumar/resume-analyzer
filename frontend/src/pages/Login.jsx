@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { API_ORIGIN } from '../services/api';
 import { Mail, Lock, Loader2, ArrowRight, CheckCircle2 } from 'lucide-react';
 
 const Login = () => {
@@ -14,6 +15,14 @@ const Login = () => {
   const [forgotSuccess, setForgotSuccess] = useState('');
   const [forgotLoading, setForgotLoading] = useState(false);
   const navigate = useNavigate();
+
+  // Warm up the backend as soon as the login page loads. On free hosting
+  // (e.g. Render) the server sleeps when idle and takes ~30–60s to wake; firing
+  // this ping while the user types their credentials means the API is usually
+  // ready by the time they hit "Sign In". Fire-and-forget; errors are ignored.
+  useEffect(() => {
+    fetch(`${API_ORIGIN}/`, { mode: 'no-cors' }).catch(() => {});
+  }, []);
 
   const handleLoginSubmit = async (e) => {
     e.preventDefault();

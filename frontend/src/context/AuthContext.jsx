@@ -46,6 +46,15 @@ export const AuthProvider = ({ children }) => {
       }
     } catch (error) {
       console.error(error);
+      // No `response` means the request never reached the API (server asleep /
+      // waking up, or offline) — distinguish that from a real auth rejection.
+      if (!error.response) {
+        return {
+          success: false,
+          message: 'Could not reach the server — it may be waking up. Please wait a few seconds and try again.',
+          code: 'NETWORK',
+        };
+      }
       return {
         success: false,
         message: error.response?.data?.message || 'Login failed. Please verify credentials.',
