@@ -31,11 +31,22 @@ const allowedOrigins = [
   ...(process.env.CLIENT_URL ? process.env.CLIENT_URL.split(',').map((o) => o.trim()) : []),
 ];
 
+// Allow the exact configured origins, plus any Vercel deployment (production +
+// preview URLs are all *.vercel.app). Set CLIENT_URL to your production domain.
+const isAllowedOrigin = (origin) => {
+  if (allowedOrigins.includes(origin)) return true;
+  try {
+    return /\.vercel\.app$/i.test(new URL(origin).hostname);
+  } catch (_) {
+    return false;
+  }
+};
+
 app.use(
   cors({
     origin: (origin, callback) => {
       // Allow non-browser tools (curl/Postman) that send no Origin header.
-      if (!origin || allowedOrigins.includes(origin)) {
+      if (!origin || isAllowedOrigin(origin)) {
         return callback(null, true);
       }
       return callback(new Error(`Origin ${origin} not allowed by CORS`));
