@@ -1,4 +1,5 @@
 const { getClient } = require('../config/supabase');
+const { encrypt, decrypt } = require('../utils/secretCrypto');
 
 const TABLE = 'settings';
 const ROW_ID = 1; // single-row table
@@ -29,7 +30,8 @@ const toApi = (row) =>
     locations: row.locations || [],
     minAiScore: row.min_ai_score,
     aiProvider: row.ai_provider || 'mock',
-    aiApiKey: row.ai_api_key || '',
+    aiApiKey: decrypt(row.ai_api_key), // stored encrypted at rest
+    aiModel: row.ai_model || '',
     updatedBy: row.updated_by,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -75,7 +77,8 @@ const SettingsRepo = {
       row.min_ai_score = Number(patch.minAiScore);
     }
     if (patch.aiProvider !== undefined) row.ai_provider = patch.aiProvider;
-    if (patch.aiApiKey !== undefined) row.ai_api_key = patch.aiApiKey;
+    if (patch.aiApiKey !== undefined) row.ai_api_key = encrypt(patch.aiApiKey);
+    if (patch.aiModel !== undefined) row.ai_model = patch.aiModel;
     if (userId) row.updated_by = userId;
 
     const { data, error } = await getClient()

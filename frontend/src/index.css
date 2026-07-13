@@ -6,9 +6,28 @@
   body {
     @apply bg-slate-50 text-slate-900 font-sans antialiased transition-colors duration-200;
   }
-  
+
   body.dark {
     @apply bg-darkBg text-slate-200;
+  }
+}
+
+/* Print / "Save as PDF": drop the app chrome (sidebar, top bar, floating
+   widgets, and anything marked .no-print) so only the page content prints. */
+@media print {
+  aside,
+  header,
+  .no-print {
+    display: none !important;
+  }
+  main {
+    overflow: visible !important;
+    padding: 0 !important;
+  }
+  body,
+  body.dark {
+    background: #fff !important;
+    color: #000 !important;
   }
 }
 

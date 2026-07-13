@@ -120,6 +120,17 @@ const NotificationRepo = {
     if (error) throw error;
     return true;
   },
+
+  // Resolve the email addresses a notification should reach based on its target.
+  async resolveRecipientEmails({ targetType, targetRole, targetUser }) {
+    let q = getClient().from('users').select('email');
+    if (targetType === 'role') q = q.eq('role', targetRole);
+    else if (targetType === 'user') q = q.eq('id', targetUser);
+    // targetType 'all' → every user
+    const { data, error } = await q;
+    if (error) throw error;
+    return (data || []).map((u) => u.email).filter(Boolean);
+  },
 };
 
 module.exports = NotificationRepo;

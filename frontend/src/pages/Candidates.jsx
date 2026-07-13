@@ -14,7 +14,9 @@ import {
   ArrowRightLeft,
   XCircle,
   FileCheck,
-  Trash2
+  Trash2,
+  Download,
+  Copy
 } from 'lucide-react';
 const Candidates = () => {
   const { user } = useAuth();
@@ -129,6 +131,41 @@ const Candidates = () => {
     return 'bg-rose-500/10 text-rose-600 border border-rose-500/20';
   };
 
+  // Export the currently filtered candidates to a CSV file (client-side).
+  const exportCsv = () => {
+    if (!candidates.length) return;
+    const headers = ['Name', 'Email', 'Phone', 'Target Role', 'Department', 'Status', 'Overall Score', 'Match %', 'Skills', 'Applied'];
+    const esc = (v) => {
+      const s = String(v ?? '');
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const rows = candidates.map((c) =>
+      [
+        c.name,
+        c.email,
+        c.phone || '',
+        c.jobId?.title || '',
+        c.jobId?.department || '',
+        c.status,
+        c.aiAnalysis?.overallScore ?? '',
+        c.aiAnalysis?.matchPercentage ?? '',
+        (c.skills || []).join('; '),
+        c.createdAt ? new Date(c.createdAt).toLocaleDateString() : '',
+      ]
+        .map(esc)
+        .join(',')
+    );
+    // Prepend a BOM so Excel reads UTF-8 correctly.
+    const csv = '﻿' + [headers.join(','), ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `candidates-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="space-y-3 animate-in fade-in duration-300 relative pb-20">
       
@@ -138,13 +175,24 @@ const Candidates = () => {
           <h2 className="text-xl font-extrabold text-slate-800 dark:text-slate-100">Talent Profiles Directory</h2>
           <p className="text-xs text-slate-500">Search applicant profiles, evaluate AI scores, and initiate talent comparisons.</p>
         </div>
-        <Link
-          to="/upload"
-          className="flex items-center space-x-1.5 px-4.5 py-2.5 bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-700 hover:to-indigo-700 text-white rounded-xl text-xs font-semibold shadow-md shadow-brand-500/10 transition"
-        >
-          <Plus size={15} />
-          <span>Upload & Parse CV</span>
-        </Link>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={exportCsv}
+            disabled={!candidates.length}
+            title="Export the filtered candidates to CSV"
+            className="flex items-center space-x-1.5 px-4 py-2.5 border border-slate-200 dark:border-darkBorder hover:bg-slate-50 dark:hover:bg-slate-800/50 text-slate-600 dark:text-slate-300 rounded-xl text-xs font-semibold transition disabled:opacity-50"
+          >
+            <Download size={15} />
+            <span>Export CSV</span>
+          </button>
+          <Link
+            to="/upload"
+            className="flex items-center space-x-1.5 px-4.5 py-2.5 bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-700 hover:to-indigo-700 text-white rounded-xl text-xs font-semibold shadow-md shadow-brand-500/10 transition"
+          >
+            <Plus size={15} />
+            <span>Upload & Parse CV</span>
+          </Link>
+        </div>
       </div>
 
       {/* Filter toolbar */}
@@ -268,12 +316,22 @@ const Candidates = () => {
                           {cand.name.charAt(0)}
                         </div>
                         <div>
-                          <Link
-                            to={`/candidates/${cand._id}`}
-                            className="font-bold text-slate-800 dark:text-slate-200 hover:text-brand-500 dark:hover:text-brand-400 block hover:underline"
-                          >
-                            {cand.name}
-                          </Link>
+                          <div className="flex items-center gap-1.5">
+                            <Link
+                              to={`/candidates/${cand._id}`}
+                              className="font-bold text-slate-800 dark:text-slate-200 hover:text-brand-500 dark:hover:text-brand-400 hover:underline"
+                            >
+                              {cand.name}
+                            </Link>
+                            {cand.isDuplicate && (
+                              <span
+                                title={`This email appears on ${cand.duplicateCount} candidate records`}
+                                className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 border border-amber-500/20 text-[8.5px] font-bold uppercase"
+                              >
+                                <Copy size={9} /> Dup
+                              </span>
+                            )}
+                          </div>
                           <span className="text-[10px] text-slate-400">{cand.email}</span>
                         </div>
                       </div>

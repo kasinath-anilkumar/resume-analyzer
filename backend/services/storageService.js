@@ -86,6 +86,34 @@ class StorageService {
   }
 
   /**
+   * Download a previously stored resume back into memory so it can be
+   * re-parsed (e.g. for re-running AI analysis). Works for both Supabase public
+   * URLs and the local-disk fallback. Returns { buffer, mimeType, originalName }.
+   */
+  static async downloadResume(resumeUrl) {
+    if (!resumeUrl) throw new Error('No resume URL to download');
+    const originalName = decodeURIComponent(resumeUrl.split('/').pop().split('?')[0]) || 'resume';
+
+    if (/^https?:\/\//i.test(resumeUrl)) {
+      const res = await axios.get(resumeUrl, { responseType: 'arraybuffer', maxContentLength: Infinity });
+      return {
+        buffer: Buffer.from(res.data),
+        mimeType: res.headers['content-type'] || 'application/octet-stream',
+        originalName,
+      };
+    }
+
+    // Local disk fallback: /uploads/<file>
+    if (resumeUrl.startsWith('/uploads/')) {
+      const dest = path.join(__dirname, '../uploads', resumeUrl.replace('/uploads/', ''));
+      const buffer = fs.readFileSync(dest);
+      return { buffer, mimeType: 'application/octet-stream', originalName };
+    }
+
+    throw new Error('Unsupported resume URL for download');
+  }
+
+  /**
    * Best-effort removal of a stored resume file so no orphaned data is left
    * behind when a candidate is deleted. Never throws — a failed storage delete
    * should not block the candidate record removal.

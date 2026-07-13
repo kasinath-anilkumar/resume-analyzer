@@ -44,6 +44,12 @@ const Settings = () => {
   const [newApiKey, setNewApiKey] = useState('');
   const [savingKey, setSavingKey] = useState(false);
 
+  // AI model picker
+  const [availableModels, setAvailableModels] = useState([]);
+  const [selectedModel, setSelectedModel] = useState('');
+  const [loadingModels, setLoadingModels] = useState(false);
+  const [savingModel, setSavingModel] = useState(false);
+
   // Form input states
   const [newDept, setNewDept] = useState('');
   const [newLoc, setNewLoc] = useState('');
@@ -52,19 +58,23 @@ const Settings = () => {
   const [dbState, setDbState] = useState({ connected: false, type: 'In-Memory Fallback' });
 
   const isHR = user && ['Admin', 'Recruiter'].includes(user.role);
+  // Only Admins may view or manage the AI provider key / model.
+  const isAdmin = user?.role === 'Admin';
 
   useEffect(() => {
     const fetchSettings = async () => {
       try {
         const res = await api.get('/settings');
         if (res.data.success) {
-          const { departments, locations, minAiScore, aiProvider, aiKeyConfigured, aiKeyMasked } = res.data.data;
+          const { departments, locations, minAiScore, aiProvider, aiKeyConfigured, aiKeyMasked, aiModel } = res.data.data;
           setDepartments(departments || []);
           setLocations(locations || []);
           setMinAiScore(minAiScore || 60);
           setAiProvider(aiProvider || 'mock');
           setAiKeyConfigured(!!aiKeyConfigured);
           setAiKeyMasked(aiKeyMasked || '');
+          setSelectedModel(aiModel || '');
+          if (aiKeyConfigured) fetchModels();
         }
 
         // Query system stats to detect DB type
@@ -131,17 +141,40 @@ const Settings = () => {
     showStatus('success', `Removed "${removed}" location.`);
   };
 
+  // "Save Settings" saves EVERYTHING in one go: general config, plus (for
+  // Admins) the entered API key and the selected model.
   const handleSaveSettings = async () => {
     if (!isHR) return;
+
+    const payload = { departments, locations, minAiScore };
+
+    // Admins also persist the AI key/model here.
+    if (isAdmin) {
+      const cleaned = cleanKey(newApiKey);
+      if (cleaned) {
+        if (detectProvider(cleaned) === 'unknown') {
+          showStatus('error', 'Unrecognized API key format. Fix or clear the key field, then save again.');
+          return;
+        }
+        payload.aiApiKey = cleaned; // validated + stored server-side
+      }
+      // Persist the chosen model when a key is (or is being) configured.
+      if (aiKeyConfigured || cleaned) {
+        payload.aiModel = selectedModel;
+      }
+    }
+
     setSaving(true);
     try {
-      const res = await api.put('/settings', {
-        departments,
-        locations,
-        minAiScore
-      });
+      const res = await api.put('/settings', payload);
       if (res.data.success) {
-        showStatus('success', 'Settings Successfully Synchronized!');
+        const d = res.data.data || {};
+        if (d.aiProvider !== undefined) setAiProvider(d.aiProvider || 'mock');
+        if (d.aiKeyConfigured !== undefined) setAiKeyConfigured(!!d.aiKeyConfigured);
+        if (d.aiKeyMasked !== undefined) setAiKeyMasked(d.aiKeyMasked || '');
+        if (newApiKey) setNewApiKey('');
+        if (res.data.availableModels?.length) setAvailableModels(res.data.availableModels);
+        showStatus('success', 'All settings saved.');
       }
     } catch (err) {
       console.error('Error saving configurations', err);
@@ -151,14 +184,24 @@ const Settings = () => {
     }
   };
 
+  // Normalize a pasted key: strip zero-width / non-breaking chars and any
+  // wrapping quotes/backticks that copy-paste adds (these break the prefix
+  // checks even when the key visibly starts with AIza / sk- / etc.).
+  const cleanKey = (key) =>
+    (key || '')
+      .replace(/[\u200B-\u200D\uFEFF\u00A0]/g, '')
+      .trim()
+      .replace(/^["'`\s]+|["'`\s]+$/g, '')
+      .trim();
+
   // Mirror the backend's key-shape detection so the UI can preview the
   // provider before saving.
   const detectProvider = (key) => {
-    const k = (key || '').trim();
+    const k = cleanKey(key);
     if (!k) return null;
     if (k.startsWith('sk-ant-')) return 'claude';
     if (k.startsWith('nvapi-')) return 'nvidia';
-    if (k.startsWith('AIza')) return 'gemini';
+    if (k.startsWith('AIza') || k.startsWith('AQ.')) return 'gemini';
     if (k.startsWith('sk-')) return 'openai';
     return 'unknown';
   };
@@ -173,23 +216,30 @@ const Settings = () => {
   };
 
   const detectedProvider = detectProvider(newApiKey);
+  const enteringValidKey = Boolean(newApiKey.trim() && detectedProvider && detectedProvider !== 'unknown');
+  const showModelPicker = isHR && (aiKeyConfigured || enteringValidKey);
+  const pickerProvider = enteringValidKey ? detectedProvider : aiProvider;
 
   const handleSaveApiKey = async () => {
     if (!isHR) return;
-    const trimmed = newApiKey.trim();
-    if (!trimmed) return;
-    if (detectProvider(trimmed) === 'unknown') {
-      showStatus('error', 'Unrecognized API key format. Use an OpenAI (sk-...), Claude (sk-ant-...), or Gemini (AIza...) key.');
+    const cleaned = cleanKey(newApiKey);
+    if (!cleaned) return;
+    if (detectProvider(cleaned) === 'unknown') {
+      showStatus('error', 'Unrecognized API key format. Use an OpenAI (sk-...), Claude (sk-ant-...), NVIDIA (nvapi-...), or Google Gemini (AIza...) key.');
       return;
     }
     setSavingKey(true);
     try {
-      const res = await api.put('/settings', { aiApiKey: trimmed });
+      // Persist the chosen model (if any) alongside the key.
+      const res = await api.put('/settings', { aiApiKey: cleaned, aiModel: selectedModel });
       if (res.data.success) {
         setAiProvider(res.data.data.aiProvider || 'mock');
         setAiKeyConfigured(!!res.data.data.aiKeyConfigured);
         setAiKeyMasked(res.data.data.aiKeyMasked || '');
         setNewApiKey('');
+        // Keep the model list the key can use (from the save response, else the
+        // preview we already fetched) so the picker stays populated.
+        if (res.data.availableModels?.length) setAvailableModels(res.data.availableModels);
         showStatus('success', `API key saved. Detected provider: ${PROVIDER_LABELS[res.data.data.aiProvider] || res.data.data.aiProvider}.`);
       }
     } catch (err) {
@@ -199,6 +249,62 @@ const Settings = () => {
       setSavingKey(false);
     }
   };
+
+  // Load the models the configured key can use (for the picker).
+  const fetchModels = async () => {
+    setLoadingModels(true);
+    try {
+      const res = await api.get('/settings/models');
+      if (res.data.success) {
+        setAvailableModels(res.data.data.models || []);
+        setSelectedModel((prev) => prev || res.data.data.selected || '');
+      }
+    } catch (err) {
+      console.error('Error loading models', err);
+    } finally {
+      setLoadingModels(false);
+    }
+  };
+
+  const handleSaveModel = async () => {
+    if (!isHR) return;
+    setSavingModel(true);
+    try {
+      const res = await api.put('/settings', { aiModel: selectedModel });
+      if (res.data.success) {
+        showStatus('success', selectedModel ? `Model set to ${selectedModel}.` : 'Using the provider default model.');
+      }
+    } catch (err) {
+      showStatus('error', err.response?.data?.message || 'Failed to save model.');
+    } finally {
+      setSavingModel(false);
+    }
+  };
+
+  // As soon as a validly-formatted key is entered, preview the models it can use
+  // (without saving) so the picker populates immediately. Debounced so we don't
+  // hit the provider on every keystroke.
+  useEffect(() => {
+    if (!isHR) return undefined;
+    const key = cleanKey(newApiKey);
+    if (!key || detectProvider(key) === 'unknown') return undefined;
+    const t = setTimeout(async () => {
+      setLoadingModels(true);
+      try {
+        const res = await api.post('/settings/models/preview', { aiApiKey: key });
+        if (res.data.success) {
+          setAvailableModels(res.data.data.models || []);
+          setSelectedModel('');
+        }
+      } catch (err) {
+        // Ignore preview errors — real validation happens on Save Key.
+      } finally {
+        setLoadingModels(false);
+      }
+    }, 700);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [newApiKey]);
 
   const handleRemoveApiKey = async () => {
     if (!isHR) return;
@@ -490,7 +596,8 @@ const Settings = () => {
                 <p className="text-[9.5px] text-slate-400">Configure parsing rules, score matching logic, and evaluation metrics.</p>
               </div>
 
-              {/* AI Provider API Key (auto-detect) */}
+              {/* AI Provider API Key — Admin only */}
+              {isAdmin ? (
               <div className="space-y-3 bg-slate-50/40 dark:bg-slate-900/10 p-3 rounded-xl border border-slate-200/30 dark:border-darkBorder/10">
                 <div className="flex items-center justify-between">
                   <div>
@@ -539,7 +646,7 @@ const Settings = () => {
                         disabled={savingKey}
                         value={newApiKey}
                         onChange={(e) => setNewApiKey(e.target.value)}
-                        placeholder={aiKeyConfigured ? 'Paste a new key to replace…' : 'sk-... / sk-ant-... / nvapi-... / AIza...'}
+                        placeholder={aiKeyConfigured ? 'Paste a new key to replace…' : 'sk-... / sk-ant-... / nvapi-... / AIza... / AQ...'}
                         className="flex-grow h-9 px-3 border border-slate-200 dark:border-darkBorder rounded-lg bg-white dark:bg-slate-900 text-xs font-mono text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
                       />
                       <button
@@ -563,7 +670,74 @@ const Settings = () => {
                     </p>
                   </div>
                 )}
+
+                {/* AI model picker — shows the models the current/entered key supports */}
+                {showModelPicker && (
+                  <div className="pt-3 mt-1 border-t border-slate-200/50 dark:border-darkBorder/30 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <span className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center">
+                          <Cpu size={13} className="text-brand-500 mr-1.5" /> AI Model
+                        </span>
+                        <p className="text-[10px] text-slate-400 mt-0.5">
+                          {enteringValidKey && !aiKeyConfigured
+                            ? `Models available for the entered ${PROVIDER_LABELS[pickerProvider] || pickerProvider} key — pick one, then Save Key.`
+                            : `Models available for your ${PROVIDER_LABELS[pickerProvider] || pickerProvider} key.`}
+                        </p>
+                      </div>
+                      <button
+                        onClick={fetchModels}
+                        disabled={loadingModels}
+                        className="flex items-center gap-1 text-[10px] font-semibold text-brand-500 hover:text-brand-600 transition disabled:opacity-50"
+                      >
+                        {loadingModels ? <Loader2 size={11} className="animate-spin" /> : <RotateCcw size={11} />}
+                        <span>Refresh</span>
+                      </button>
+                    </div>
+
+                    {loadingModels ? (
+                      <div className="flex items-center gap-2 text-[11px] text-slate-400 py-1">
+                        <Loader2 size={13} className="animate-spin" /> Loading available models…
+                      </div>
+                    ) : availableModels.length > 0 ? (
+                      <div className="flex items-center gap-2">
+                        <select
+                          value={selectedModel}
+                          onChange={(e) => setSelectedModel(e.target.value)}
+                          className="flex-grow h-9 px-3 border border-slate-200 dark:border-darkBorder rounded-lg bg-white dark:bg-slate-900 text-xs text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
+                        >
+                          <option value="">Provider default</option>
+                          {availableModels.map((m) => (
+                            <option key={m} value={m}>{m}</option>
+                          ))}
+                        </select>
+                        {/* Persisting alone only makes sense once the key is saved;
+                            for a newly-entered key, "Save Key" stores key + model. */}
+                        {aiKeyConfigured && (
+                          <button
+                            onClick={handleSaveModel}
+                            disabled={savingModel}
+                            className="flex items-center space-x-1.5 px-3.5 h-9 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-xs font-semibold rounded-lg transition"
+                          >
+                            {savingModel ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
+                            <span>Set Model</span>
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-[10px] text-slate-400 italic">
+                        No models listed for this key. The provider default will be used.
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
+              ) : (
+                <div className="p-3 bg-slate-50/40 dark:bg-slate-900/10 rounded-xl border border-slate-200/30 dark:border-darkBorder/10 text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-2">
+                  <ShieldCheck size={14} className="text-brand-500 flex-shrink-0" />
+                  The AI provider key is managed by an administrator. Résumé analysis uses the configured key automatically — nothing to set here.
+                </div>
+              )}
 
               {/* Threshold matching slider */}
               <div className="space-y-3 bg-slate-50/40 dark:bg-slate-900/10 p-3 rounded-xl border border-slate-200/30 dark:border-darkBorder/10">

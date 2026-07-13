@@ -5,13 +5,14 @@ const SettingsRepo = require('../models/settingsRepo');
 const ParserService = require('../services/parserService');
 const AIService = require('../services/aiService');
 const StorageService = require('../services/storageService');
+const EmailService = require('../services/emailService');
 
 // Resolve the AI provider/key configured through Settings so resume analysis
 // uses whatever key the admin pasted in the UI (auto-detected provider).
 const resolveAiConfig = async () => {
   try {
     const s = await SettingsRepo.get();
-    return { apiKey: s.aiApiKey, provider: s.aiProvider };
+    return { apiKey: s.aiApiKey, provider: s.aiProvider, model: s.aiModel };
   } catch (err) {
     console.error('Failed to resolve AI config, using defaults', err.message);
     return {};
@@ -97,13 +98,24 @@ exports.uploadResume = async (req, res) => {
       aiAnalysis: aiParsedResult.aiAnalysis || {},
     };
 
-    // 6. Persist
+    // 6. Duplicate check — is this email already on another candidate?
+    let duplicates = [];
+    try {
+      duplicates = await CandidateRepo.findByEmail(candidateData.email);
+    } catch (dupErr) {
+      console.error('Duplicate check failed:', dupErr.message);
+    }
+
+    // 7. Persist
     const candidate = await CandidateRepo.create(candidateData);
 
     return res.status(201).json({
       success: true,
       message: `Resume parsed and analyzed successfully (stored via ${stored.provider})`,
       data: candidate,
+      duplicateWarning: duplicates.length
+        ? `A candidate with the email ${candidateData.email} already exists (${duplicates.length} other record${duplicates.length > 1 ? 's' : ''}).`
+        : null,
     });
   } catch (error) {
     console.error('Upload processing error:', error);
@@ -134,7 +146,14 @@ exports.getCandidateById = async (req, res) => {
     if (!candidate) {
       return res.status(404).json({ success: false, message: 'Candidate not found' });
     }
-    return res.json({ success: true, data: candidate });
+    // Surface other candidates sharing this email (possible duplicates).
+    let duplicates = [];
+    try {
+      duplicates = await CandidateRepo.findByEmail(candidate.email, candidate._id);
+    } catch (dupErr) {
+      console.error('Duplicate lookup failed:', dupErr.message);
+    }
+    return res.json({ success: true, data: { ...candidate, duplicates } });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ success: false, message: 'Server error retrieving candidate profile' });
@@ -228,6 +247,150 @@ exports.deleteNote = async (req, res) => {
   } catch (error) {
     console.error(error);
     return res.status(500).json({ success: false, message: 'Server error deleting note' });
+  }
+};
+
+// @desc    Schedule an interview for a candidate
+// @route   POST /api/candidates/:id/interviews
+// @access  Private (Admin, Recruiter)
+exports.scheduleInterview = async (req, res) => {
+  try {
+    const { stage, scheduledAt, mode, locationOrLink, interviewer, notes, notifyCandidate } = req.body;
+    if (!scheduledAt) {
+      return res.status(400).json({ success: false, message: 'A date/time is required.' });
+    }
+
+    const candidate = await CandidateRepo.getRaw(req.params.id);
+    if (!candidate) {
+      return res.status(404).json({ success: false, message: 'Candidate not found' });
+    }
+
+    const interview = {
+      _id: crypto.randomUUID(),
+      stage: stage || 'Interview',
+      scheduledAt,
+      mode: mode || 'Online',
+      locationOrLink: locationOrLink || '',
+      interviewer: interviewer || '',
+      notes: notes || '',
+      createdAt: new Date().toISOString(),
+    };
+    const interviews = [...(candidate.interviews || []), interview].sort(
+      (a, b) => new Date(a.scheduledAt) - new Date(b.scheduledAt)
+    );
+    const saved = await CandidateRepo.setInterviews(req.params.id, interviews);
+
+    // Optionally email the candidate their invite (best-effort).
+    let emailed = false;
+    if (notifyCandidate && EmailService.isConfigured()) {
+      const job = await JobRepo.findById(candidate.job_id);
+      const result = await EmailService.sendInterviewInvite(
+        { name: candidate.name, email: candidate.email },
+        interview,
+        job?.title
+      );
+      emailed = result.sent;
+    }
+
+    return res.status(201).json({ success: true, data: saved, emailed });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ success: false, message: 'Server error scheduling interview' });
+  }
+};
+
+// @desc    Remove a scheduled interview
+// @route   DELETE /api/candidates/:id/interviews/:interviewId
+// @access  Private (Admin, Recruiter)
+exports.deleteInterview = async (req, res) => {
+  try {
+    const candidate = await CandidateRepo.getRaw(req.params.id);
+    if (!candidate) {
+      return res.status(404).json({ success: false, message: 'Candidate not found' });
+    }
+    const interviews = (candidate.interviews || []).filter(
+      (iv) => String(iv._id) !== String(req.params.interviewId)
+    );
+    const saved = await CandidateRepo.setInterviews(req.params.id, interviews);
+    return res.json({ success: true, data: saved });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ success: false, message: 'Server error removing interview' });
+  }
+};
+
+// @desc    Move a candidate to a different job opening
+// @route   PUT /api/candidates/:id/job
+// @access  Private (Admin, Recruiter)
+exports.moveCandidateJob = async (req, res) => {
+  try {
+    const { jobId } = req.body;
+    if (!jobId) {
+      return res.status(400).json({ success: false, message: 'A target jobId is required.' });
+    }
+    const job = await JobRepo.findById(jobId);
+    if (!job) {
+      return res.status(404).json({ success: false, message: 'Target job not found' });
+    }
+    const candidate = await CandidateRepo.moveJob(req.params.id, jobId);
+    if (!candidate) {
+      return res.status(404).json({ success: false, message: 'Candidate not found' });
+    }
+    return res.json({
+      success: true,
+      data: candidate,
+      // Scores are job-specific — hint that a re-analysis is advisable.
+      message: 'Candidate moved. AI scores reflect the previous job — consider re-running analysis.',
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ success: false, message: 'Server error moving candidate' });
+  }
+};
+
+// @desc    Re-run AI analysis for a candidate against their current job
+// @route   POST /api/candidates/:id/reanalyze
+// @access  Private (Admin, Recruiter)
+exports.reanalyzeCandidate = async (req, res) => {
+  try {
+    const candidate = await CandidateRepo.getRaw(req.params.id);
+    if (!candidate) {
+      return res.status(404).json({ success: false, message: 'Candidate not found' });
+    }
+    const job = await JobRepo.findById(candidate.job_id);
+    if (!job) {
+      return res.status(404).json({ success: false, message: 'Candidate job not found' });
+    }
+
+    // 1. Pull the stored resume back into memory and re-extract its text.
+    let extractedText;
+    try {
+      const file = await StorageService.downloadResume(candidate.resume_url);
+      extractedText = await ParserService.extractText(file.buffer, file.mimeType, file.originalName);
+    } catch (dlErr) {
+      console.error('Re-analyze download/parse failed:', dlErr.message);
+      return res.status(502).json({ success: false, message: 'Could not read the stored resume to re-analyze.' });
+    }
+
+    // 2. Re-run AI analysis against the current job.
+    const aiConfig = await resolveAiConfig();
+    let parsed;
+    try {
+      parsed = await AIService.analyzeResume(extractedText, job, aiConfig);
+    } catch (aiErr) {
+      return res.status(aiErr.status || 502).json({
+        success: false,
+        code: aiErr.code || 'AI_FAILED',
+        message: aiErr.message || 'AI re-analysis failed. Verify the API key in Settings.',
+      });
+    }
+
+    // 3. Persist the refreshed AI fields.
+    const updated = await CandidateRepo.applyReanalysis(req.params.id, parsed);
+    return res.json({ success: true, data: updated, message: 'Candidate re-analyzed against the current job.' });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ success: false, message: 'Server error re-analyzing candidate' });
   }
 };
 

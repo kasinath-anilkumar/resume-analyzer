@@ -19,6 +19,7 @@ const toApi = (row) =>
     linkedInUrl: row.linkedin_url || '',
     portfolioUrl: row.portfolio_url || '',
     notes: row.notes || [],
+    interviews: row.interviews || [],
     status: row.status,
     jobId: row.job_id, // replaced with a populated object where noted
     aiAnalysis: row.ai_analysis || {},
@@ -42,6 +43,7 @@ const toRow = (data = {}) => {
   if (data.linkedInUrl !== undefined) row.linkedin_url = data.linkedInUrl;
   if (data.portfolioUrl !== undefined) row.portfolio_url = data.portfolioUrl;
   if (data.notes !== undefined) row.notes = data.notes || [];
+  if (data.interviews !== undefined) row.interviews = data.interviews || [];
   if (data.status !== undefined) row.status = data.status;
   if (data.jobId !== undefined) row.job_id = data.jobId;
   if (data.aiAnalysis !== undefined) row.ai_analysis = data.aiAnalysis || {};
@@ -123,11 +125,25 @@ const CandidateRepo = {
       });
     }
 
+    // Flag duplicates: any email that appears on more than one candidate in the
+    // WHOLE table (not just this filtered page) is marked so the UI can badge it.
+    const { data: allEmails } = await getClient().from(TABLE).select('email');
+    const emailCounts = {};
+    (allEmails || []).forEach((r) => {
+      const e = String(r.email || '').toLowerCase();
+      if (e) emailCounts[e] = (emailCounts[e] || 0) + 1;
+    });
+
     const jobs = await jobLookup(rows.map((c) => c.jobId), ['title', 'department']);
-    return rows.map((c) => ({
-      ...c,
-      jobId: jobs[String(c.jobId)] || { _id: c.jobId, title: 'Unknown', department: 'Unknown' },
-    }));
+    return rows.map((c) => {
+      const dupCount = emailCounts[String(c.email || '').toLowerCase()] || 1;
+      return {
+        ...c,
+        jobId: jobs[String(c.jobId)] || { _id: c.jobId, title: 'Unknown', department: 'Unknown' },
+        isDuplicate: dupCount > 1,
+        duplicateCount: dupCount,
+      };
+    });
   },
 
   // Single candidate with a richer populated job object.
@@ -175,6 +191,85 @@ const CandidateRepo = {
       .maybeSingle();
     if (error) throw error;
     return data ? data.notes || [] : null;
+  },
+
+  async setInterviews(id, interviews) {
+    const { data, error } = await getClient()
+      .from(TABLE)
+      .update({ interviews, updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .select('interviews')
+      .maybeSingle();
+    if (error) throw error;
+    return data ? data.interviews || [] : null;
+  },
+
+  // Move a candidate to a different job. Returns the updated candidate with the
+  // new job populated ({_id,title,department}).
+  async moveJob(id, jobId) {
+    const { data, error } = await getClient()
+      .from(TABLE)
+      .update({ job_id: jobId, updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .select('*')
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) return null;
+    const c = toApi(data);
+    const jobs = await jobLookup([c.jobId], ['title', 'department']);
+    c.jobId = jobs[String(c.jobId)] || c.jobId;
+    return c;
+  },
+
+  // Overwrite the AI-derived fields after a re-analysis. Returns the full
+  // candidate with the job populated ({_id,title,department}).
+  async applyReanalysis(id, parsed) {
+    const patch = {
+      skills: parsed.skills || [],
+      education: parsed.education || [],
+      experience: parsed.experience || [],
+      projects: parsed.projects || [],
+      certifications: parsed.certifications || [],
+      languages: parsed.languages || [],
+      github_url: parsed.githubUrl || '',
+      linkedin_url: parsed.linkedInUrl || '',
+      portfolio_url: parsed.portfolioUrl || '',
+      ai_analysis: parsed.aiAnalysis || {},
+      updated_at: new Date().toISOString(),
+    };
+    const { data, error } = await getClient()
+      .from(TABLE)
+      .update(patch)
+      .eq('id', id)
+      .select('*')
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) return null;
+    const c = toApi(data);
+    const jobs = await jobLookup([c.jobId], ['title', 'department']);
+    c.jobId = jobs[String(c.jobId)] || c.jobId;
+    return c;
+  },
+
+  // Other candidates sharing an email (duplicate detection). Optionally exclude
+  // one id (the current candidate).
+  async findByEmail(email, excludeId) {
+    if (!email) return [];
+    let q = getClient()
+      .from(TABLE)
+      .select('id, name, email, job_id, status, created_at')
+      .ilike('email', email);
+    if (excludeId) q = q.neq('id', excludeId);
+    const { data, error } = await q;
+    if (error) throw error;
+    return (data || []).map((r) => ({
+      _id: r.id,
+      name: r.name,
+      email: r.email,
+      jobId: r.job_id,
+      status: r.status,
+      createdAt: r.created_at,
+    }));
   },
 
   // Delete and return the removed candidate's resumeUrl for storage cleanup.

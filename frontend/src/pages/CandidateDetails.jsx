@@ -22,7 +22,13 @@ import {
   Send,
   Loader2,
   ChevronLeft,
-  Plus
+  Plus,
+  RefreshCw,
+  Printer,
+  ArrowRightLeft,
+  CalendarPlus,
+  Clock,
+  X
 } from 'lucide-react';
 
 // Dynamic score coloring: green (strong) / amber (moderate) / red (weak).
@@ -46,11 +52,27 @@ const CandidateDetails = () => {
   const [error, setError] = useState('');
   const [deleting, setDeleting] = useState(false);
 
-  const canDelete = ['Admin', 'Recruiter'].includes(user?.role);
+  const canManage = ['Admin', 'Recruiter'].includes(user?.role);
+  const canDelete = canManage;
 
   // Recruiter Notes state
   const [newNote, setNewNote] = useState('');
   const [addingNote, setAddingNote] = useState(false);
+
+  // Manage actions (move job / re-analyze) + interviews
+  const [jobs, setJobs] = useState([]);
+  const [moving, setMoving] = useState(false);
+  const [reanalyzing, setReanalyzing] = useState(false);
+  const [actionMsg, setActionMsg] = useState({ type: '', text: '' });
+  const emptyInterview = { stage: 'Interview', scheduledAt: '', mode: 'Online', locationOrLink: '', interviewer: '', notes: '', notifyCandidate: false };
+  const [interviewForm, setInterviewForm] = useState(emptyInterview);
+  const [showInterviewForm, setShowInterviewForm] = useState(false);
+  const [savingInterview, setSavingInterview] = useState(false);
+
+  const flash = (type, text) => {
+    setActionMsg({ type, text });
+    setTimeout(() => setActionMsg({ type: '', text: '' }), 5000);
+  };
 
   const fetchCandidate = async () => {
     try {
@@ -70,6 +92,86 @@ const CandidateDetails = () => {
   useEffect(() => {
     fetchCandidate();
   }, [id]);
+
+  // Load active jobs for the "move to job" control (HR only).
+  useEffect(() => {
+    if (!canManage) return;
+    api.get('/jobs')
+      .then((res) => { if (res.data.success) setJobs(res.data.data); })
+      .catch((err) => console.error('Failed to load jobs', err));
+  }, [canManage]);
+
+  const handleReanalyze = async () => {
+    if (!window.confirm('Re-download the resume and re-run AI analysis against the current job? This overwrites the existing scores.')) return;
+    setReanalyzing(true);
+    setActionMsg({ type: '', text: '' });
+    try {
+      const res = await api.post(`/candidates/${id}/reanalyze`);
+      if (res.data.success) {
+        setCandidate((prev) => ({ ...res.data.data, duplicates: prev.duplicates }));
+        flash('success', 'Candidate re-analyzed against the current job.');
+      } else {
+        flash('error', res.data.message || 'Re-analysis failed.');
+      }
+    } catch (err) {
+      flash('error', err.response?.data?.message || 'Re-analysis failed.');
+    } finally {
+      setReanalyzing(false);
+    }
+  };
+
+  const handleMoveJob = async (jobId) => {
+    if (!jobId || jobId === candidate.jobId?._id) return;
+    const target = jobs.find((j) => j._id === jobId);
+    if (!window.confirm(`Move ${candidate.name} to "${target?.title}"? AI scores were computed for the current job — re-run analysis afterwards for accurate matching.`)) return;
+    setMoving(true);
+    try {
+      const res = await api.put(`/candidates/${id}/job`, { jobId });
+      if (res.data.success) {
+        setCandidate((prev) => ({ ...prev, jobId: res.data.data.jobId }));
+        flash('success', res.data.message || 'Candidate moved.');
+      } else {
+        flash('error', res.data.message || 'Move failed.');
+      }
+    } catch (err) {
+      flash('error', err.response?.data?.message || 'Move failed.');
+    } finally {
+      setMoving(false);
+    }
+  };
+
+  const handleScheduleInterview = async (e) => {
+    e.preventDefault();
+    if (!interviewForm.scheduledAt) return;
+    setSavingInterview(true);
+    try {
+      const res = await api.post(`/candidates/${id}/interviews`, interviewForm);
+      if (res.data.success) {
+        setCandidate((prev) => ({ ...prev, interviews: res.data.data }));
+        setInterviewForm(emptyInterview);
+        setShowInterviewForm(false);
+        flash('success', res.data.emailed ? 'Interview scheduled and candidate emailed.' : 'Interview scheduled.');
+      }
+    } catch (err) {
+      flash('error', err.response?.data?.message || 'Failed to schedule interview.');
+    } finally {
+      setSavingInterview(false);
+    }
+  };
+
+  const handleDeleteInterview = async (interviewId) => {
+    if (!window.confirm('Remove this scheduled interview?')) return;
+    try {
+      const res = await api.delete(`/candidates/${id}/interviews/${interviewId}`);
+      if (res.data.success) {
+        setCandidate((prev) => ({ ...prev, interviews: res.data.data }));
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handlePrint = () => window.print();
 
   const handleAddNote = async (e) => {
     e.preventDefault();
@@ -229,6 +331,78 @@ const CandidateDetails = () => {
             </button>
           )}
         </div>
+      </div>
+
+      {/* Action feedback */}
+      {actionMsg.text && (
+        <div className={`p-3 text-xs rounded-xl flex items-center border ${
+          actionMsg.type === 'success'
+            ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-400'
+            : 'bg-rose-500/10 border-rose-500/20 text-rose-600 dark:text-rose-400'
+        }`}>
+          {actionMsg.type === 'success' ? <CheckCircle size={14} className="mr-2" /> : <AlertCircle size={14} className="mr-2" />}
+          <span>{actionMsg.text}</span>
+        </div>
+      )}
+
+      {/* Possible duplicate warning */}
+      {candidate.duplicates?.length > 0 && (
+        <div className="p-3 text-xs rounded-xl border bg-amber-500/10 border-amber-500/20 text-amber-700 dark:text-amber-400 flex items-start gap-2">
+          <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
+          <div className="space-y-1">
+            <p className="font-semibold">
+              Possible duplicate — {candidate.duplicates.length} other candidate{candidate.duplicates.length > 1 ? 's' : ''} share this email ({candidate.email}):
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {candidate.duplicates.map((d) => (
+                <Link key={d._id} to={`/candidates/${d._id}`} className="underline hover:no-underline font-medium">
+                  {d.name} · {d.status}
+                </Link>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Manage action bar */}
+      <div className="flex flex-wrap items-center gap-2 no-print">
+        <button
+          onClick={handlePrint}
+          className="flex items-center space-x-1.5 px-3 py-2 border border-slate-200 dark:border-darkBorder hover:bg-slate-50 dark:hover:bg-slate-800/50 text-slate-600 dark:text-slate-300 rounded-xl text-xs font-semibold transition"
+        >
+          <Printer size={14} />
+          <span>Print / PDF</span>
+        </button>
+
+        {canManage && (
+          <>
+            <button
+              onClick={handleReanalyze}
+              disabled={reanalyzing}
+              title="Re-download the resume and re-score it against the current job"
+              className="flex items-center space-x-1.5 px-3 py-2 border border-slate-200 dark:border-darkBorder hover:bg-slate-50 dark:hover:bg-slate-800/50 text-slate-600 dark:text-slate-300 rounded-xl text-xs font-semibold transition disabled:opacity-50"
+            >
+              {reanalyzing ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+              <span>{reanalyzing ? 'Re-analyzing…' : 'Re-run AI Analysis'}</span>
+            </button>
+
+            <div className="flex items-center gap-1.5 px-2 py-1 border border-slate-200 dark:border-darkBorder rounded-xl">
+              <ArrowRightLeft size={13} className="text-slate-400" />
+              <select
+                value={candidate.jobId?._id || ''}
+                onChange={(e) => handleMoveJob(e.target.value)}
+                disabled={moving}
+                title="Move candidate to another job"
+                className="bg-transparent text-xs font-semibold text-slate-600 dark:text-slate-300 focus:outline-none disabled:opacity-50 py-1"
+              >
+                <option value={candidate.jobId?._id || ''}>{moving ? 'Moving…' : `Job: ${candidate.jobId?.title || 'Unknown'}`}</option>
+                {jobs.filter((j) => j._id !== candidate.jobId?._id).map((j) => (
+                  <option key={j._id} value={j._id}>Move to: {j.title}</option>
+                ))}
+              </select>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Grid Dashboard */}
@@ -447,6 +621,125 @@ const CandidateDetails = () => {
               </div>
             </div>
 
+          </div>
+
+          {/* Interview Schedule Section */}
+          <div className="p-4 bg-white dark:bg-darkCard border border-slate-200/60 dark:border-darkBorder rounded-xl shadow-premium dark:shadow-premium-dark space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest flex items-center">
+                <CalendarPlus size={14} className="mr-2" /> Interview Schedule
+              </h3>
+              {canManage && (
+                <button
+                  onClick={() => setShowInterviewForm((s) => !s)}
+                  className="flex items-center space-x-1 text-[11px] font-semibold text-brand-500 hover:text-brand-600 transition"
+                >
+                  {showInterviewForm ? <X size={13} /> : <Plus size={13} />}
+                  <span>{showInterviewForm ? 'Cancel' : 'Schedule'}</span>
+                </button>
+              )}
+            </div>
+
+            {/* Schedule form */}
+            {canManage && showInterviewForm && (
+              <form onSubmit={handleScheduleInterview} className="grid grid-cols-2 gap-2.5 p-3 bg-slate-50 dark:bg-slate-900/30 border border-slate-200/50 dark:border-darkBorder/40 rounded-xl">
+                <select
+                  value={interviewForm.stage}
+                  onChange={(e) => setInterviewForm((f) => ({ ...f, stage: e.target.value }))}
+                  className="h-9 px-2 border border-slate-200 dark:border-darkBorder rounded-lg bg-white dark:bg-slate-900 text-xs text-slate-700 dark:text-slate-300 focus:outline-none"
+                >
+                  {['Interview', 'Technical Round', 'HR Round', 'Screening', 'Final Round'].map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+                <input
+                  type="datetime-local"
+                  required
+                  value={interviewForm.scheduledAt}
+                  onChange={(e) => setInterviewForm((f) => ({ ...f, scheduledAt: e.target.value }))}
+                  className="h-9 px-2 border border-slate-200 dark:border-darkBorder rounded-lg bg-white dark:bg-slate-900 text-xs text-slate-700 dark:text-slate-300 focus:outline-none"
+                />
+                <select
+                  value={interviewForm.mode}
+                  onChange={(e) => setInterviewForm((f) => ({ ...f, mode: e.target.value }))}
+                  className="h-9 px-2 border border-slate-200 dark:border-darkBorder rounded-lg bg-white dark:bg-slate-900 text-xs text-slate-700 dark:text-slate-300 focus:outline-none"
+                >
+                  {['Online', 'In-person', 'Phone'].map((m) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+                <input
+                  type="text"
+                  value={interviewForm.locationOrLink}
+                  onChange={(e) => setInterviewForm((f) => ({ ...f, locationOrLink: e.target.value }))}
+                  placeholder={interviewForm.mode === 'Online' ? 'Meeting link' : 'Location'}
+                  className="h-9 px-2 border border-slate-200 dark:border-darkBorder rounded-lg bg-white dark:bg-slate-900 text-xs text-slate-700 dark:text-slate-300 focus:outline-none"
+                />
+                <input
+                  type="text"
+                  value={interviewForm.interviewer}
+                  onChange={(e) => setInterviewForm((f) => ({ ...f, interviewer: e.target.value }))}
+                  placeholder="Interviewer name"
+                  className="h-9 px-2 border border-slate-200 dark:border-darkBorder rounded-lg bg-white dark:bg-slate-900 text-xs text-slate-700 dark:text-slate-300 focus:outline-none"
+                />
+                <input
+                  type="text"
+                  value={interviewForm.notes}
+                  onChange={(e) => setInterviewForm((f) => ({ ...f, notes: e.target.value }))}
+                  placeholder="Notes (optional)"
+                  className="h-9 px-2 border border-slate-200 dark:border-darkBorder rounded-lg bg-white dark:bg-slate-900 text-xs text-slate-700 dark:text-slate-300 focus:outline-none"
+                />
+                <label className="col-span-2 flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
+                  <input
+                    type="checkbox"
+                    checked={interviewForm.notifyCandidate}
+                    onChange={(e) => setInterviewForm((f) => ({ ...f, notifyCandidate: e.target.checked }))}
+                    className="rounded border-slate-300"
+                  />
+                  Email the invite to the candidate ({candidate.email})
+                </label>
+                <button
+                  type="submit"
+                  disabled={savingInterview || !interviewForm.scheduledAt}
+                  className="col-span-2 flex items-center justify-center gap-1.5 h-9 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white rounded-lg text-xs font-semibold transition"
+                >
+                  {savingInterview ? <Loader2 size={14} className="animate-spin" /> : <CalendarPlus size={14} />}
+                  <span>Schedule Interview</span>
+                </button>
+              </form>
+            )}
+
+            {/* Scheduled interviews list */}
+            <div className="space-y-2.5">
+              {candidate.interviews?.map((iv) => (
+                <div key={iv._id} className="p-3 bg-slate-50 dark:bg-slate-900/40 border border-slate-200/50 dark:border-darkBorder/40 rounded-xl flex justify-between items-start">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2 text-[11px]">
+                      <span className="font-bold text-slate-700 dark:text-slate-300">{iv.stage}</span>
+                      <span className="px-1.5 py-0.5 rounded bg-brand-500/10 text-brand-600 font-semibold text-[9.5px]">{iv.mode}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
+                      <Clock size={11} />
+                      <span>{new Date(iv.scheduledAt).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                    </div>
+                    {iv.locationOrLink && <p className="text-[10.5px] text-slate-500 dark:text-slate-400 break-all">{iv.locationOrLink}</p>}
+                    {iv.interviewer && <p className="text-[10.5px] text-slate-400">Interviewer: {iv.interviewer}</p>}
+                    {iv.notes && <p className="text-[10.5px] text-slate-500 dark:text-slate-400 italic">{iv.notes}</p>}
+                  </div>
+                  {canManage && (
+                    <button
+                      onClick={() => handleDeleteInterview(iv._id)}
+                      className="p-1 text-slate-400 hover:text-rose-500 rounded transition flex-shrink-0"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  )}
+                </div>
+              ))}
+              {(!candidate.interviews || candidate.interviews.length === 0) && (
+                <div className="text-center py-5 text-slate-400 italic text-xs">No interviews scheduled.</div>
+              )}
+            </div>
           </div>
 
           {/* Recruiter Evaluation Notes Section */}

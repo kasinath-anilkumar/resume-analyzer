@@ -9,7 +9,7 @@ const AIService = require('../services/aiService');
 const resolveAiConfig = async () => {
   try {
     const s = await SettingsRepo.get();
-    return { apiKey: s.aiApiKey, provider: s.aiProvider };
+    return { apiKey: s.aiApiKey, provider: s.aiProvider, model: s.aiModel };
   } catch (err) {
     console.error('Failed to resolve AI config, using defaults', err.message);
     return {};

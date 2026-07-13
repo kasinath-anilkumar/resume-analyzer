@@ -1,4 +1,5 @@
 const NotificationRepo = require('../models/notificationRepo');
+const EmailService = require('../services/emailService');
 
 const ROLES = ['Admin', 'Recruiter', 'Hiring Manager'];
 
@@ -32,6 +33,20 @@ exports.createNotification = async (req, res) => {
     };
 
     const n = await NotificationRepo.create(base);
+
+    // Also email the recipients (best-effort; no-op if email isn't configured).
+    if (EmailService.isConfigured()) {
+      NotificationRepo.resolveRecipientEmails(base)
+        .then((emails) =>
+          EmailService.sendNotification(emails, {
+            title: base.title,
+            message: base.message,
+            senderName: base.senderName,
+          })
+        )
+        .catch((err) => console.error('Notification email failed:', err.message));
+    }
+
     return res.status(201).json({ success: true, data: n });
   } catch (error) {
     console.error(error);

@@ -18,6 +18,10 @@ if (isConfigured()) {
 
 const app = express();
 
+// Behind Render/Vercel/other proxies, trust the first proxy hop so the client's
+// real IP (X-Forwarded-For) is used for rate limiting and logging.
+app.set('trust proxy', 1);
+
 // Middlewares
 // Restrict CORS to known frontend origins. Extra origins can be supplied via
 // CLIENT_URL in .env as a comma-separated list.

@@ -72,6 +72,7 @@ create table if not exists candidates (
   linkedin_url   text,
   portfolio_url  text,
   notes          jsonb  not null default '[]',   -- [{ _id, note, author:{_id,name,role}, createdAt }]
+  interviews     jsonb  not null default '[]',   -- [{ _id, stage, scheduledAt, mode, locationOrLink, interviewer, notes, createdAt }]
   status         text not null default 'Applied'
                  check (status in ('Applied','Screening','Shortlisted','Interview',
                                    'Technical Round','HR Round','Offer','Hired','Rejected')),
@@ -82,6 +83,9 @@ create table if not exists candidates (
 );
 create index if not exists candidates_job_id_idx on candidates(job_id);
 create index if not exists candidates_status_idx on candidates(status);
+create index if not exists candidates_email_idx on candidates(lower(email));
+-- For installs created before the interviews column existed:
+alter table candidates add column if not exists interviews jsonb not null default '[]';
 
 -- ---------------------------------------------------------------------------
 --  notifications
@@ -111,11 +115,14 @@ create table if not exists settings (
   min_ai_score integer not null default 60,
   ai_provider  text    not null default 'mock',
   ai_api_key   text    not null default '',
+  ai_model     text    not null default '',
   updated_by   uuid references users(id) on delete set null,
   created_at   timestamptz not null default now(),
   updated_at   timestamptz not null default now(),
   constraint settings_singleton check (id = 1)
 );
+-- For installs created before the ai_model column existed:
+alter table settings add column if not exists ai_model text not null default '';
 
 -- The backend seeds the single settings row (with sensible default departments
 -- and locations) on first read, so no INSERT is required here.

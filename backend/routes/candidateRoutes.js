@@ -9,6 +9,10 @@ const {
   deleteNote,
   deleteCandidate,
   getDashboardStats,
+  scheduleInterview,
+  deleteInterview,
+  moveCandidateJob,
+  reanalyzeCandidate,
 } = require('../controllers/candidateController');
 const { protect, authorize } = require('../middleware/auth');
 const upload = require('../middleware/upload');
@@ -27,6 +31,14 @@ router.route('/:id')
   .delete(protect, authorize('Admin', 'Recruiter'), deleteCandidate);
 
 router.put('/:id/status', protect, authorize('Admin', 'Recruiter'), updateCandidateStatus);
+
+// Move to a different job / re-run AI analysis
+router.put('/:id/job', protect, authorize('Admin', 'Recruiter'), moveCandidateJob);
+router.post('/:id/reanalyze', protect, authorize('Admin', 'Recruiter'), reanalyzeCandidate);
+
+// Interview scheduling
+router.post('/:id/interviews', protect, authorize('Admin', 'Recruiter'), scheduleInterview);
+router.delete('/:id/interviews/:interviewId', protect, authorize('Admin', 'Recruiter'), deleteInterview);
 
 // Notes operations
 router.post('/:id/notes', protect, addNote);

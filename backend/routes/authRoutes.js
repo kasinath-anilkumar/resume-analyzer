@@ -10,11 +10,13 @@ const {
   deleteUser,
 } = require('../controllers/authController');
 const { protect, authorize } = require('../middleware/auth');
+const { authLimiter } = require('../middleware/rateLimit');
 
 // Public self-registration is disabled — accounts are created by an Admin via
 // the User Management panel (POST /api/auth/users).
-router.post('/login', loginUser);
-router.post('/forgot-password', forgotPassword);
+// Rate-limit the unauthenticated credential endpoints to slow brute-forcing.
+router.post('/login', authLimiter, loginUser);
+router.post('/forgot-password', authLimiter, forgotPassword);
 router.get('/me', protect, getMe);
 
 // --- Admin-only User Management ---

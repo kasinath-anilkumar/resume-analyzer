@@ -17,12 +17,28 @@ class AIService {
    * @param {string} apiKey
    * @returns {'openai'|'claude'|'gemini'|'nvidia'|null}
    */
+  /**
+   * Normalize a pasted API key: strip zero-width / non-breaking characters and
+   * any wrapping quotes/backticks that sneak in via copy-paste, then trim. A
+   * key that visibly starts with "AIza" but is prefixed by an invisible char or
+   * a stray quote would otherwise fail the prefix checks below.
+   */
+  static cleanKey(apiKey) {
+    if (!apiKey || typeof apiKey !== 'string') return '';
+    return apiKey
+      .replace(/[\u200B-\u200D\uFEFF\u00A0]/g, '') // zero-width + non-breaking spaces
+      .trim()
+      .replace(/^["'`\s]+|["'`\s]+$/g, '') // wrapping quotes/backticks/space
+      .trim();
+  }
+
   static detectProvider(apiKey) {
-    if (!apiKey || typeof apiKey !== 'string') return null;
-    const key = apiKey.trim();
+    const key = this.cleanKey(apiKey);
+    if (!key) return null;
     if (key.startsWith('sk-ant-')) return 'claude';
     if (key.startsWith('nvapi-')) return 'nvidia';
-    if (key.startsWith('AIza')) return 'gemini';
+    // Google AI Studio (Gemini) keys: classic "AIza..." and the newer "AQ...." format.
+    if (key.startsWith('AIza') || key.startsWith('AQ.')) return 'gemini';
     if (key.startsWith('sk-')) return 'openai';
     return null;
   }
@@ -59,6 +75,102 @@ class AIService {
     return ['openai', 'claude', 'gemini', 'nvidia'];
   }
 
+  // Current Gemini model. The 1.5 models were retired on the Gemini API, so this
+  // defaults to a 2.x flash model. Override with GEMINI_MODEL if your key/project
+  // exposes a different one (see the models endpoint for what's available).
+  static geminiModel() {
+    return process.env.GEMINI_MODEL || 'gemini-2.0-flash';
+  }
+
+  // Does a model id plausibly belong to a provider? Used to guard against a
+  // stale stored model from a different provider (e.g. an NVIDIA key left with a
+  // 'gemini-*' model) silently breaking analysis.
+  static modelMatchesProvider(provider, model) {
+    if (!model) return false;
+    const m = String(model).toLowerCase();
+    switch (provider) {
+      case 'gemini': return m.startsWith('gemini') || m.startsWith('gemma');
+      case 'openai': return m.startsWith('gpt') || /^o[134]/.test(m);
+      case 'claude': return m.startsWith('claude');
+      case 'nvidia': return m.includes('/'); // e.g. meta/llama-3.1-70b-instruct
+      default: return false;
+    }
+  }
+
+  // Resolve the model to use: the configured one if it matches the provider,
+  // otherwise the provider's default.
+  static resolveModel(provider, model) {
+    return model && this.modelMatchesProvider(provider, model) ? model : this.defaultModel(provider);
+  }
+
+  // The model to use when the admin hasn't explicitly picked one in Settings.
+  static defaultModel(provider) {
+    switch (provider) {
+      case 'openai': return process.env.OPENAI_MODEL || 'gpt-4o-mini';
+      case 'claude': return process.env.CLAUDE_MODEL || 'claude-opus-4-8';
+      case 'gemini': return this.geminiModel();
+      case 'nvidia': return process.env.NVIDIA_NIM_MODEL || 'meta/llama-3.1-70b-instruct';
+      default: return '';
+    }
+  }
+
+  /**
+   * List the models a given key can use for the provider, so the UI can offer a
+   * picker. Returns an array of model-id strings (may be empty). Throws a
+   * classified error if the key is rejected.
+   */
+  // Keep only models that can actually do our task: text in → text/JSON out.
+  // Drops image / audio / TTS / video / music / embedding / vision-cutout /
+  // robotics / computer-use / moderation etc. that a chat/generateContent call
+  // with JSON output can't use.
+  static filterUsableModels(provider, ids) {
+    const EXCLUDE = {
+      gemini: /image|imagen|nano-banana|tts|audio|speech|embedding|aqa|veo|lyria|music|robotics|computer-use|vision-only/i,
+      openai: /audio|realtime|image|tts|whisper|dall|embedding|moderation|transcribe|search|codex|clip/i,
+      nvidia: /embed|rerank|rank|vision|guard|safety|ocr|retriev|reward|parakeet|riva|clip|florence|paddle|nemoretriever/i,
+      claude: null,
+    }[provider];
+    const seen = new Set();
+    return (ids || [])
+      .filter((id) => id && (!EXCLUDE || !EXCLUDE.test(id)))
+      .filter((id) => (seen.has(id) ? false : seen.add(id)));
+  }
+
+  static async listModels(apiKey, provider) {
+    const timeout = 12000;
+    try {
+      let ids = [];
+      if (provider === 'openai') {
+        const r = await axios.get('https://api.openai.com/v1/models', {
+          headers: { Authorization: `Bearer ${apiKey}` }, timeout,
+        });
+        ids = (r.data.data || []).map((m) => m.id).filter((id) => /gpt|^o1|^o3|^o4/i.test(id)).sort();
+      } else if (provider === 'claude') {
+        const r = await axios.get('https://api.anthropic.com/v1/models', {
+          headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' }, timeout,
+        });
+        ids = (r.data.data || []).map((m) => m.id);
+      } else if (provider === 'gemini') {
+        const r = await axios.get('https://generativelanguage.googleapis.com/v1beta/models', {
+          headers: { 'x-goog-api-key': apiKey }, timeout,
+        });
+        ids = (r.data.models || [])
+          .filter((m) => (m.supportedGenerationMethods || []).includes('generateContent'))
+          .map((m) => String(m.name || '').replace(/^models\//, ''))
+          .filter(Boolean);
+      } else if (provider === 'nvidia') {
+        const r = await axios.get('https://integrate.api.nvidia.com/v1/models', {
+          headers: { Authorization: `Bearer ${apiKey}` }, timeout,
+        });
+        ids = (r.data.data || []).map((m) => m.id).sort();
+      }
+      return this.filterUsableModels(provider, ids);
+    } catch (error) {
+      if (error.aiClassified) throw error;
+      throw this.providerError(error, provider);
+    }
+  }
+
   // Thrown when no usable AI key/provider is configured anywhere.
   static notConfiguredError() {
     const e = new Error(
@@ -83,7 +195,17 @@ class AIService {
       e.status = 400;
       e.code = 'AI_KEY_INVALID';
     } else if (status === 429) {
-      e = new Error(`The ${provider} API quota/rate limit was exceeded. Try again later or use a different key.`);
+      // Surface Google's own explanation (first line) — it distinguishes a
+      // real rate-limit from a model with zero free-tier quota (limit: 0).
+      const firstLine = (apiMsg || '').split('\n').map((s) => s.trim()).filter(Boolean)[0] || '';
+      const zeroQuota = /limit:\s*0\b/i.test(apiMsg || '');
+      const geminiHint =
+        provider === 'gemini'
+          ? zeroQuota
+            ? ' This model has no free-tier quota (Pro/preview models usually require billing). In Settings, switch the AI Model to a Flash model like gemini-2.0-flash or gemini-2.5-flash.'
+            : ' Wait a moment and retry, or in Settings switch to a Flash model (gemini-2.0-flash / gemini-2.5-flash) which has higher free limits.'
+          : ' Try again later or use a key with higher quota.';
+      e = new Error(`The ${provider} API quota was exceeded${firstLine ? ` (${firstLine})` : ''}.${geminiHint}`);
       e.status = 429;
       e.code = 'AI_RATE_LIMIT';
     } else {
@@ -117,9 +239,12 @@ class AIService {
         return true;
       }
       if (provider === 'gemini') {
+        // Authenticate via the x-goog-api-key header only — it works for both the
+        // classic AIza keys and the newer AQ. format (the ?key= query param can
+        // reject the new format).
         await axios.get(
-          `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`,
-          { timeout }
+          'https://generativelanguage.googleapis.com/v1beta/models',
+          { timeout, headers: { 'x-goog-api-key': apiKey } }
         );
         return true;
       }
@@ -193,13 +318,14 @@ class AIService {
 
   static async analyzeResume(resumeText, job, aiConfig = {}) {
     const { apiKey, provider } = this.resolveKeyProvider(aiConfig);
+    const model = this.resolveModel(provider, aiConfig.model && aiConfig.model.trim());
 
     // 4) Call the provider; propagate a classified error on failure (no fallback).
     try {
-      if (provider === 'openai') return await this.analyzeWithOpenAI(resumeText, job, apiKey);
-      if (provider === 'claude') return await this.analyzeWithClaude(resumeText, job, apiKey);
-      if (provider === 'gemini') return await this.analyzeWithGemini(resumeText, job, apiKey);
-      if (provider === 'nvidia') return await this.analyzeWithNvidia(resumeText, job, apiKey);
+      if (provider === 'openai') return await this.analyzeWithOpenAI(resumeText, job, apiKey, model);
+      if (provider === 'claude') return await this.analyzeWithClaude(resumeText, job, apiKey, model);
+      if (provider === 'gemini') return await this.analyzeWithGemini(resumeText, job, apiKey, model);
+      if (provider === 'nvidia') return await this.analyzeWithNvidia(resumeText, job, apiKey, model);
       throw this.notConfiguredError();
     } catch (error) {
       if (error.aiClassified) throw error; // already a friendly, classified error
@@ -216,13 +342,14 @@ class AIService {
    */
   static async completeJson(systemPrompt, userPrompt, aiConfig = {}) {
     const { apiKey, provider } = this.resolveKeyProvider(aiConfig);
+    const model = this.resolveModel(provider, aiConfig.model && aiConfig.model.trim());
     try {
       let jsonText;
       if (provider === 'openai') {
         const r = await axios.post(
           'https://api.openai.com/v1/chat/completions',
           {
-            model: 'gpt-4o-mini',
+            model,
             messages: [
               { role: 'system', content: systemPrompt },
               { role: 'user', content: userPrompt },
@@ -237,7 +364,7 @@ class AIService {
         const r = await axios.post(
           'https://integrate.api.nvidia.com/v1/chat/completions',
           {
-            model: process.env.NVIDIA_NIM_MODEL || 'meta/llama-3.1-70b-instruct',
+            model,
             messages: [
               { role: 'system', content: systemPrompt },
               { role: 'user', content: userPrompt },
@@ -252,7 +379,7 @@ class AIService {
         const r = await axios.post(
           'https://api.anthropic.com/v1/messages',
           {
-            model: 'claude-opus-4-8',
+            model,
             max_tokens: 2000,
             system: systemPrompt + '\nRespond ONLY with the JSON object. Do not include markdown codeblocks.',
             messages: [{ role: 'user', content: userPrompt }],
@@ -261,14 +388,14 @@ class AIService {
         );
         jsonText = r.data.content[0].text;
       } else if (provider === 'gemini') {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
         const r = await axios.post(
           url,
           {
             contents: [{ parts: [{ text: `${systemPrompt}\n\n${userPrompt}` }] }],
             generationConfig: { responseMimeType: 'application/json', temperature: 0.1 },
           },
-          { headers: { 'Content-Type': 'application/json' } }
+          { headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey } }
         );
         jsonText = r.data.candidates[0].content.parts[0].text;
       } else {
@@ -454,11 +581,11 @@ Analyze the resume text, extract all fields, compute scores out of 100, and retu
   }
 
   // --- OpenAI Provider ---
-  static async analyzeWithOpenAI(resumeText, job, apiKey = process.env.OPENAI_API_KEY) {
+  static async analyzeWithOpenAI(resumeText, job, apiKey = process.env.OPENAI_API_KEY, model) {
     const response = await axios.post(
       'https://api.openai.com/v1/chat/completions',
       {
-        model: 'gpt-4o-mini',
+        model: model || this.defaultModel('openai'),
         messages: [
           { role: 'system', content: this.getSystemPrompt() },
           { role: 'user', content: this.getUserPrompt(resumeText, job) }
@@ -479,12 +606,11 @@ Analyze the resume text, extract all fields, compute scores out of 100, and retu
   }
 
   // --- NVIDIA NIM Provider (OpenAI-compatible endpoint) ---
-  static async analyzeWithNvidia(resumeText, job, apiKey = process.env.NVIDIA_API_KEY) {
+  static async analyzeWithNvidia(resumeText, job, apiKey = process.env.NVIDIA_API_KEY, model) {
     const response = await axios.post(
       'https://integrate.api.nvidia.com/v1/chat/completions',
       {
-        // Override via NVIDIA_NIM_MODEL if your account exposes a different model.
-        model: process.env.NVIDIA_NIM_MODEL || 'meta/llama-3.1-70b-instruct',
+        model: model || this.defaultModel('nvidia'),
         messages: [
           { role: 'system', content: this.getSystemPrompt() },
           { role: 'user', content: this.getUserPrompt(resumeText, job) }
@@ -506,13 +632,13 @@ Analyze the resume text, extract all fields, compute scores out of 100, and retu
   }
 
   // --- Claude Provider ---
-  static async analyzeWithClaude(resumeText, job, apiKey = process.env.CLAUDE_API_KEY) {
+  static async analyzeWithClaude(resumeText, job, apiKey = process.env.CLAUDE_API_KEY, model) {
     const response = await axios.post(
       'https://api.anthropic.com/v1/messages',
       {
-        // Current Anthropic model. Note: newer Claude models reject the
-        // `temperature` parameter (400), so it is intentionally omitted here.
-        model: 'claude-opus-4-8',
+        // Note: newer Claude models reject the `temperature` parameter (400),
+        // so it is intentionally omitted here.
+        model: model || this.defaultModel('claude'),
         max_tokens: 4000,
         system: this.getSystemPrompt() + '\nRespond ONLY with the JSON object. Do not include markdown codeblocks.',
         messages: [
@@ -533,8 +659,8 @@ Analyze the resume text, extract all fields, compute scores out of 100, and retu
   }
 
   // --- Gemini Provider ---
-  static async analyzeWithGemini(resumeText, job, apiKey = process.env.GEMINI_API_KEY) {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+  static async analyzeWithGemini(resumeText, job, apiKey = process.env.GEMINI_API_KEY, model) {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model || this.defaultModel('gemini')}:generateContent`;
 
     const promptText = `${this.getSystemPrompt()}\n\n${this.getUserPrompt(resumeText, job)}`;
 
@@ -553,7 +679,8 @@ Analyze the resume text, extract all fields, compute scores out of 100, and retu
       },
       {
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'x-goog-api-key': apiKey
         }
       }
     );
