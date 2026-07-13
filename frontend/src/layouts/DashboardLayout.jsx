@@ -30,7 +30,8 @@ import {
   ArrowLeftRight,
   Settings,
   UploadCloud,
-  UserCog
+  UserCog,
+  Sparkles
 } from 'lucide-react';
 
 const DashboardLayout = () => {
@@ -91,6 +92,7 @@ const DashboardLayout = () => {
     { name: 'Job Openings', path: '/jobs', icon: Briefcase, roles: ['Admin', 'Recruiter', 'Hiring Manager'] },
     { name: 'Upload & Analyze', path: '/upload', icon: UploadCloud, roles: ['Admin', 'Recruiter'] },
     { name: 'Candidates', path: '/candidates', icon: Users, roles: ['Admin', 'Recruiter', 'Hiring Manager'] },
+    { name: 'AI Shortlist', path: '/shortlist', icon: Sparkles, roles: ['Admin', 'Recruiter', 'Hiring Manager'] },
     { name: 'Hiring Pipeline', path: '/pipeline', icon: Columns, roles: ['Admin', 'Recruiter', 'Hiring Manager'] },
     { name: 'Compare Talents', path: '/compare', icon: ArrowLeftRight, roles: ['Admin', 'Recruiter', 'Hiring Manager'] },
     { name: 'Notifications', path: '/notifications', icon: Bell, roles: ['Admin'] },

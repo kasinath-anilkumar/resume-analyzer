@@ -21,6 +21,8 @@ const toApi = (row) =>
     notes: row.notes || [],
     interviews: row.interviews || [],
     status: row.status,
+    source: row.source || 'Manual',
+    screeningAnswers: row.screening_answers || [],
     jobId: row.job_id, // replaced with a populated object where noted
     aiAnalysis: row.ai_analysis || {},
     createdAt: row.created_at,
@@ -45,6 +47,8 @@ const toRow = (data = {}) => {
   if (data.notes !== undefined) row.notes = data.notes || [];
   if (data.interviews !== undefined) row.interviews = data.interviews || [];
   if (data.status !== undefined) row.status = data.status;
+  if (data.source !== undefined) row.source = data.source;
+  if (data.screeningAnswers !== undefined) row.screening_answers = data.screeningAnswers || [];
   if (data.jobId !== undefined) row.job_id = data.jobId;
   if (data.aiAnalysis !== undefined) row.ai_analysis = data.aiAnalysis || {};
   return row;

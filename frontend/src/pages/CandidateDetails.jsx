@@ -28,7 +28,12 @@ import {
   ArrowRightLeft,
   CalendarPlus,
   Clock,
-  X
+  X,
+  Sparkles,
+  AlertTriangle,
+  MessageSquare,
+  Award,
+  Gauge
 } from 'lucide-react';
 
 // Dynamic score coloring: green (strong) / amber (moderate) / red (weak).
@@ -42,6 +47,26 @@ const scoreBox = (v = 0) =>
   v >= 80 ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-100 dark:border-emerald-900/40'
     : v >= 60 ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-100 dark:border-amber-900/40'
       : 'bg-rose-50 dark:bg-rose-950/40 border-rose-100 dark:border-rose-900/40';
+
+// Colour the screening verdict badge.
+const verdictClass = (v) => {
+  switch (v) {
+    case 'Strong Fit': return 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-400';
+    case 'Potential Fit': return 'bg-brand-500/10 border-brand-500/20 text-brand-600 dark:text-brand-400';
+    case 'Weak Fit': return 'bg-amber-500/10 border-amber-500/20 text-amber-600 dark:text-amber-400';
+    default: return 'bg-rose-500/10 border-rose-500/20 text-rose-600 dark:text-rose-400';
+  }
+};
+
+// Small labelled metric tile for the AI insights row.
+const InsightTile = ({ icon: Icon, label, value }) => (
+  <div className="p-2.5 bg-slate-50/60 dark:bg-slate-900/30 border border-slate-200/50 dark:border-darkBorder/30 rounded-xl">
+    <div className="flex items-center gap-1 text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+      <Icon size={11} /> {label}
+    </div>
+    <div className="text-sm font-extrabold text-slate-800 dark:text-slate-100 mt-1 truncate">{value}</div>
+  </div>
+);
 
 const CandidateDetails = () => {
   const { id } = useParams();
@@ -283,8 +308,13 @@ const CandidateDetails = () => {
                 Job Match: {candidate.aiAnalysis?.overallScore}%
               </span>
             </div>
-            <p className="text-xs text-slate-500">
-              Candidate for <strong className="text-slate-700 dark:text-slate-300">{candidate.jobId?.title}</strong> ({candidate.jobId?.department})
+            <p className="text-xs text-slate-500 flex items-center gap-2 flex-wrap">
+              <span>Candidate for <strong className="text-slate-700 dark:text-slate-300">{candidate.jobId?.title}</strong> ({candidate.jobId?.department})</span>
+              {candidate.source === 'Application' && (
+                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 uppercase tracking-wide">
+                  Applied via Careers
+                </span>
+              )}
             </p>
           </div>
         </div>
@@ -504,7 +534,66 @@ const CandidateDetails = () => {
 
         {/* Middle/Right columns: parsed lists & notes */}
         <div className="lg:col-span-2 space-y-3">
-          
+
+          {/* AI Screening Insights */}
+          <div className="p-4 bg-white dark:bg-darkCard border border-slate-200/60 dark:border-darkBorder rounded-xl shadow-premium dark:shadow-premium-dark space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest flex items-center">
+                <Sparkles size={14} className="mr-2 text-brand-500" /> AI Screening Insights
+              </h3>
+              {aiAnalysis?.screeningVerdict && (
+                <span className={`text-[10px] font-bold px-2.5 py-1 rounded-lg border ${verdictClass(aiAnalysis.screeningVerdict)}`}>
+                  {aiAnalysis.screeningVerdict}
+                </span>
+              )}
+            </div>
+
+            {/* Insight tiles */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+              <InsightTile icon={Award} label="Seniority" value={aiAnalysis?.seniorityLevel || '—'} />
+              <InsightTile icon={Clock} label="Experience" value={aiAnalysis?.totalYearsExperience != null ? `${aiAnalysis.totalYearsExperience} yr` : '—'} />
+              <InsightTile icon={CheckCircle} label="Job Match" value={`${aiAnalysis?.matchPercentage ?? 0}%`} />
+              <InsightTile icon={Gauge} label="AI Confidence" value={`${aiAnalysis?.confidence ?? 0}%`} />
+            </div>
+
+            {/* Red flags */}
+            {aiAnalysis?.redFlags?.length > 0 && (
+              <div className="space-y-2">
+                <h4 className="text-[11px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider flex items-center">
+                  <AlertTriangle size={13} className="mr-1.5" /> Red Flags ({aiAnalysis.redFlags.length})
+                </h4>
+                <div className="space-y-1.5">
+                  {aiAnalysis.redFlags.map((f, idx) => (
+                    <div key={idx} className="flex items-start gap-2 p-2.5 bg-amber-500/5 border border-amber-500/20 rounded-lg">
+                      <AlertTriangle size={12} className="text-amber-500 mt-0.5 flex-shrink-0" />
+                      <div className="text-[11px] leading-snug">
+                        <span className="font-bold text-amber-700 dark:text-amber-400">{f.type}: </span>
+                        <span className="text-slate-600 dark:text-slate-400">{f.detail}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Suggested interview questions */}
+            {aiAnalysis?.interviewQuestions?.length > 0 && (
+              <div className="space-y-2">
+                <h4 className="text-[11px] font-bold text-brand-600 dark:text-brand-400 uppercase tracking-wider flex items-center">
+                  <MessageSquare size={13} className="mr-1.5" /> Suggested Interview Questions
+                </h4>
+                <ol className="space-y-1.5 list-none">
+                  {aiAnalysis.interviewQuestions.map((q, idx) => (
+                    <li key={idx} className="flex items-start gap-2 text-[11px] text-slate-600 dark:text-slate-400 leading-snug">
+                      <span className="flex-shrink-0 w-4 h-4 rounded-full bg-brand-500/10 text-brand-600 dark:text-brand-400 text-[9px] font-bold flex items-center justify-center mt-0.5">{idx + 1}</span>
+                      <span>{q}</span>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            )}
+          </div>
+
           {/* Skills clouds */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 p-3.5 bg-white dark:bg-darkCard border border-slate-200/60 dark:border-darkBorder rounded-xl shadow-premium dark:shadow-premium-dark">
             {/* Matched skills */}
@@ -741,6 +830,23 @@ const CandidateDetails = () => {
               )}
             </div>
           </div>
+
+          {/* Application screening responses (public applicants) */}
+          {candidate.screeningAnswers?.length > 0 && (
+            <div className="p-4 bg-white dark:bg-darkCard border border-slate-200/60 dark:border-darkBorder rounded-xl shadow-premium dark:shadow-premium-dark space-y-3">
+              <h3 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest flex items-center">
+                <MessageSquare size={14} className="mr-2 text-brand-500" /> Application Responses
+              </h3>
+              <div className="space-y-3">
+                {candidate.screeningAnswers.map((qa, idx) => (
+                  <div key={idx} className="p-3 bg-slate-50 dark:bg-slate-900/40 border border-slate-200/50 dark:border-darkBorder/40 rounded-xl">
+                    <p className="text-[11px] font-bold text-slate-700 dark:text-slate-300">{qa.question}</p>
+                    <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 leading-relaxed whitespace-pre-line">{qa.answer || <span className="italic text-slate-400">No answer</span>}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Recruiter Evaluation Notes Section */}
           <div className="p-4 bg-white dark:bg-darkCard border border-slate-200/60 dark:border-darkBorder rounded-xl shadow-premium dark:shadow-premium-dark space-y-3">

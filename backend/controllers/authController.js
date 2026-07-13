@@ -1,5 +1,7 @@
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const UserRepo = require('../models/userRepo');
+const EmailService = require('../services/emailService');
 
 // Generate JWT token
 const generateToken = (id) => {
@@ -7,6 +9,15 @@ const generateToken = (id) => {
     expiresIn: '30d',
   });
 };
+
+// Public app (frontend) base URL, used in emailed links.
+const appBaseUrl = () => {
+  if (process.env.APP_URL) return process.env.APP_URL.replace(/\/$/, '');
+  if (process.env.CLIENT_URL) return process.env.CLIENT_URL.split(',')[0].trim().replace(/\/$/, '');
+  return 'http://localhost:5173';
+};
+
+const sha256 = (s) => crypto.createHash('sha256').update(String(s)).digest('hex');
 
 // Valid roles for admin-created accounts. Public self-registration is disabled;
 // accounts are created by an Admin via POST /api/auth/users.
@@ -42,19 +53,88 @@ exports.loginUser = async (req, res) => {
 // @route   POST /api/auth/forgot-password
 // @access  Public
 exports.forgotPassword = async (req, res) => {
+  // Always return the same generic response so this endpoint can't be used to
+  // discover which emails have accounts (user enumeration).
+  const generic = {
+    success: true,
+    message: 'If an account exists for that email, a password reset link has been sent (valid for 1 hour).',
+  };
   try {
     const { email } = req.body;
+    if (!email) return res.status(400).json({ success: false, message: 'Email is required.' });
+
     const row = await UserRepo.findRawByEmail(email);
-    if (!row) {
-      return res.status(404).json({ success: false, message: 'No user registered with this email' });
+    if (row) {
+      const token = crypto.randomBytes(32).toString('hex');
+      const expires = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // 1 hour
+      await UserRepo.setResetToken(row.id, sha256(token), expires);
+
+      const link = `${appBaseUrl()}/reset-password?token=${token}&email=${encodeURIComponent(row.email)}`;
+      const result = await EmailService.sendPasswordReset({ name: row.name, email: row.email }, link);
+      if (!result.sent && !EmailService.isConfigured()) {
+        // Email isn't configured — tell the admin so they aren't left guessing.
+        return res.json({
+          success: true,
+          message: 'Reset link generated, but email is not configured on the server. Ask an administrator to set RESEND_API_KEY.',
+        });
+      }
     }
-    return res.json({
-      success: true,
-      message: 'A password reset link has been sent to your registered email address (valid for 10 minutes).',
-    });
+    return res.json(generic);
   } catch (error) {
     console.error(error);
     return res.status(500).json({ success: false, message: 'Server error during password reset request' });
+  }
+};
+
+// @desc    Complete a password reset with the emailed token
+// @route   POST /api/auth/reset-password
+// @access  Public
+exports.resetPassword = async (req, res) => {
+  try {
+    const { email, token, password } = req.body;
+    if (!token || !password) {
+      return res.status(400).json({ success: false, message: 'Token and new password are required.' });
+    }
+    if (String(password).length < 6) {
+      return res.status(400).json({ success: false, message: 'Password must be at least 6 characters.' });
+    }
+
+    const row = await UserRepo.findByResetTokenHash(sha256(token));
+    if (!row || (email && row.email !== String(email).trim().toLowerCase())) {
+      return res.status(400).json({ success: false, message: 'This reset link is invalid or has expired. Request a new one.' });
+    }
+
+    await UserRepo.updatePassword(row.id, password);
+    return res.json({ success: true, message: 'Password updated. You can now sign in with your new password.' });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ success: false, message: 'Server error resetting password' });
+  }
+};
+
+// @desc    Change the signed-in user's own password
+// @route   PUT /api/auth/password
+// @access  Private
+exports.changePassword = async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ success: false, message: 'Current and new password are required.' });
+    }
+    if (String(newPassword).length < 6) {
+      return res.status(400).json({ success: false, message: 'New password must be at least 6 characters.' });
+    }
+
+    const row = await UserRepo.findRawById(req.user.id);
+    if (!row || !(await UserRepo.matchPassword(currentPassword, row))) {
+      return res.status(400).json({ success: false, message: 'Your current password is incorrect.' });
+    }
+
+    await UserRepo.updatePassword(row.id, newPassword);
+    return res.json({ success: true, message: 'Password changed successfully.' });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ success: false, message: 'Server error changing password' });
   }
 };
 

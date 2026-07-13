@@ -15,4 +15,17 @@ const authLimiter = rateLimit({
     }),
 });
 
-module.exports = { authLimiter };
+// Throttle public résumé submissions to curb spam/abuse. Keyed by client IP.
+const applyLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  limit: 20,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  handler: (req, res) =>
+    res.status(429).json({
+      success: false,
+      message: 'Too many applications from this network. Please try again later.',
+    }),
+});
+
+module.exports = { authLimiter, applyLimiter };

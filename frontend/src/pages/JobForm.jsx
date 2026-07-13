@@ -16,6 +16,7 @@ const emptyForm = {
   requiredSkills: '',
   preferredSkills: '',
   description: '',
+  screeningQuestions: '', // one per line; shown on the public application form
 };
 
 const JobForm = () => {
@@ -73,6 +74,7 @@ const JobForm = () => {
               requiredSkills: (job.requiredSkills || []).join(', '),
               preferredSkills: (job.preferredSkills || []).join(', '),
               description: job.description || '',
+              screeningQuestions: (job.screeningQuestions || []).join('\n'),
             });
           } else {
             setError('Job not found.');
@@ -147,6 +149,7 @@ const JobForm = () => {
         ...formData,
         requiredSkills: formData.requiredSkills.split(',').map((s) => s.trim()).filter(Boolean),
         preferredSkills: formData.preferredSkills.split(',').map((s) => s.trim()).filter(Boolean),
+        screeningQuestions: formData.screeningQuestions.split('\n').map((s) => s.trim()).filter(Boolean),
       };
       const res = isEdit ? await api.put(`/jobs/${id}`, payload) : await api.post('/jobs', payload);
       if (res.data.success) {
@@ -323,6 +326,19 @@ const JobForm = () => {
             placeholder="Summarize role requirements, team profiles, and daily tasks..."
             className="w-full p-3 border border-slate-200 dark:border-darkBorder rounded-xl bg-slate-50/50 dark:bg-slate-900 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 resize-y"
           />
+        </div>
+
+        <div className="space-y-1">
+          <label className={labelClass}>Screening Questions (optional — one per line)</label>
+          <textarea
+            name="screeningQuestions"
+            rows="3"
+            value={formData.screeningQuestions}
+            onChange={handleInputChange}
+            placeholder={'Why do you want this role?\nWhat is your notice period?'}
+            className="w-full p-3 border border-slate-200 dark:border-darkBorder rounded-xl bg-slate-50/50 dark:bg-slate-900 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 resize-y"
+          />
+          <p className="text-[10px] text-slate-400">Shown to applicants on the public careers page (/careers).</p>
         </div>
 
         {/* Actions */}

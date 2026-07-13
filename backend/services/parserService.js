@@ -5,7 +5,13 @@ const WordExtractor = require('word-extractor');
 const IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'webp', 'bmp', 'tif', 'tiff', 'gif'];
 
 // --- OCR: one lazily-created Tesseract worker, reused across files ---
+// The worker is heavy (hundreds of MB). It's reused across a burst of files for
+// speed, then TERMINATED after a short idle so it doesn't sit resident and
+// exhaust memory on small hosts (a cause of 502s on free tiers).
 let ocrWorkerPromise = null;
+let ocrIdleTimer = null;
+const OCR_IDLE_MS = 30000;
+
 async function getOcrWorker() {
   if (!ocrWorkerPromise) {
     const { createWorker } = require('tesseract.js');
@@ -13,10 +19,29 @@ async function getOcrWorker() {
   }
   return ocrWorkerPromise;
 }
+
+function scheduleOcrUnload() {
+  if (ocrIdleTimer) clearTimeout(ocrIdleTimer);
+  ocrIdleTimer = setTimeout(async () => {
+    const pending = ocrWorkerPromise;
+    ocrWorkerPromise = null;
+    ocrIdleTimer = null;
+    try {
+      const worker = await pending;
+      if (worker) await worker.terminate();
+    } catch (_) { /* best-effort */ }
+  }, OCR_IDLE_MS);
+  if (ocrIdleTimer.unref) ocrIdleTimer.unref(); // don't keep the process alive
+}
+
 async function ocrBuffer(buffer) {
   const worker = await getOcrWorker();
-  const { data } = await worker.recognize(buffer);
-  return data && data.text ? data.text : '';
+  try {
+    const { data } = await worker.recognize(buffer);
+    return data && data.text ? data.text : '';
+  } finally {
+    scheduleOcrUnload();
+  }
 }
 
 const hasMeaningfulText = (text) => (text || '').replace(/\s/g, '').length >= 20;

@@ -69,6 +69,22 @@ const EmailService = {
     return this.send({ to: recipients, subject: title ? `[ATS] ${title}` : '[ATS] New notification', html });
   },
 
+  // Password reset link.
+  async sendPasswordReset(user, resetLink) {
+    if (!user?.email) return { sent: false, skipped: 'no email' };
+    const html = wrap(
+      'Reset your password',
+      `<p>Hi ${esc(user.name || 'there')},</p>
+       <p>We received a request to reset your PARAKKAT ATS password. Click the button below — this link expires in 1 hour.</p>
+       <p style="margin:20px 0">
+         <a href="${resetLink}" style="background:#4f46e5;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block">Reset password</a>
+       </p>
+       <p style="font-size:12px;color:#64748b">If the button doesn't work, paste this link into your browser:<br>${esc(resetLink)}</p>
+       <p style="font-size:12px;color:#94a3b8">If you didn't request this, you can safely ignore this email.</p>`
+    );
+    return this.send({ to: user.email, subject: 'Reset your PARAKKAT ATS password', html });
+  },
+
   // Interview invite to a candidate.
   async sendInterviewInvite(candidate, interview, jobTitle) {
     if (!candidate?.email) return { sent: false, skipped: 'no candidate email' };

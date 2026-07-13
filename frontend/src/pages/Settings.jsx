@@ -24,7 +24,7 @@ import {
 } from 'lucide-react';
 
 const Settings = () => {
-  const { user } = useAuth();
+  const { user, changePassword } = useAuth();
 
   // Tab control state
   const [activeTab, setActiveTab] = useState('metadata'); // 'metadata' | 'ai' | 'system'
@@ -49,6 +49,10 @@ const Settings = () => {
   const [selectedModel, setSelectedModel] = useState('');
   const [loadingModels, setLoadingModels] = useState(false);
   const [savingModel, setSavingModel] = useState(false);
+
+  // Change own password
+  const [pwForm, setPwForm] = useState({ current: '', next: '', confirm: '' });
+  const [changingPw, setChangingPw] = useState(false);
 
   // Form input states
   const [newDept, setNewDept] = useState('');
@@ -263,6 +267,27 @@ const Settings = () => {
       console.error('Error loading models', err);
     } finally {
       setLoadingModels(false);
+    }
+  };
+
+  const handleChangePassword = async (e) => {
+    e.preventDefault();
+    if (pwForm.next.length < 6) {
+      showStatus('error', 'New password must be at least 6 characters.');
+      return;
+    }
+    if (pwForm.next !== pwForm.confirm) {
+      showStatus('error', 'New passwords do not match.');
+      return;
+    }
+    setChangingPw(true);
+    const res = await changePassword(pwForm.current, pwForm.next);
+    setChangingPw(false);
+    if (res.success) {
+      showStatus('success', 'Password changed successfully.');
+      setPwForm({ current: '', next: '', confirm: '' });
+    } else {
+      showStatus('error', res.message || 'Failed to change password.');
     }
   };
 
@@ -800,6 +825,40 @@ const Settings = () => {
                   <Database size={14} className="mr-2 text-brand-500" /> Database & Server Diagnostics
                 </h3>
                 <p className="text-[9.5px] text-slate-400">Verifying live server health and database status indicators.</p>
+              </div>
+
+              {/* Change your password — available to every signed-in user */}
+              <div className="space-y-3 bg-slate-50/40 dark:bg-slate-900/10 p-3 rounded-xl border border-slate-200/30 dark:border-darkBorder/10">
+                <div>
+                  <span className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center">
+                    <Key size={13} className="text-brand-500 mr-1.5" /> Change Your Password
+                  </span>
+                  <p className="text-[10px] text-slate-400 mt-0.5">Update the password for your own account ({user?.email}).</p>
+                </div>
+                <form onSubmit={handleChangePassword} className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <input
+                    type="password" autoComplete="current-password" required placeholder="Current password"
+                    value={pwForm.current} onChange={(e) => setPwForm((f) => ({ ...f, current: e.target.value }))}
+                    className="h-9 px-3 border border-slate-200 dark:border-darkBorder rounded-lg bg-white dark:bg-slate-900 text-xs text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
+                  />
+                  <input
+                    type="password" autoComplete="new-password" required placeholder="New password (min 6)"
+                    value={pwForm.next} onChange={(e) => setPwForm((f) => ({ ...f, next: e.target.value }))}
+                    className="h-9 px-3 border border-slate-200 dark:border-darkBorder rounded-lg bg-white dark:bg-slate-900 text-xs text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
+                  />
+                  <input
+                    type="password" autoComplete="new-password" required placeholder="Confirm new password"
+                    value={pwForm.confirm} onChange={(e) => setPwForm((f) => ({ ...f, confirm: e.target.value }))}
+                    className="h-9 px-3 border border-slate-200 dark:border-darkBorder rounded-lg bg-white dark:bg-slate-900 text-xs text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
+                  />
+                  <button
+                    type="submit" disabled={changingPw}
+                    className="sm:col-span-3 flex items-center justify-center gap-1.5 h-9 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-xs font-semibold rounded-lg transition"
+                  >
+                    {changingPw ? <Loader2 size={13} className="animate-spin" /> : <ShieldCheck size={13} />}
+                    <span>Update Password</span>
+                  </button>
+                </form>
               </div>
 
               {/* Live Server connectivity card */}

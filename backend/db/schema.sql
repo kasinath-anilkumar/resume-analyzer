@@ -25,9 +25,14 @@ create table if not exists users (
   password   text not null,                -- bcrypt hash (never returned to clients)
   role       text not null default 'Recruiter'
              check (role in ('Admin', 'Recruiter', 'Hiring Manager')),
+  reset_token_hash    text,                 -- sha256 of the emailed reset token
+  reset_token_expires timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+-- For installs created before the reset columns existed:
+alter table users add column if not exists reset_token_hash text;
+alter table users add column if not exists reset_token_expires timestamptz;
 
 -- ---------------------------------------------------------------------------
 --  jobs
@@ -47,11 +52,13 @@ create table if not exists jobs (
   number_openings  integer not null default 1,
   status           text not null default 'Active'
                    check (status in ('Active','Closed','Draft','Archived')),
+  screening_questions jsonb not null default '[]', -- optional applicant questions (array of strings)
   created_by       uuid references users(id) on delete set null,
   created_at       timestamptz not null default now(),
   updated_at       timestamptz not null default now()
 );
 create index if not exists jobs_status_idx on jobs(status);
+alter table jobs add column if not exists screening_questions jsonb not null default '[]';
 
 -- ---------------------------------------------------------------------------
 --  candidates
@@ -84,8 +91,10 @@ create table if not exists candidates (
 create index if not exists candidates_job_id_idx on candidates(job_id);
 create index if not exists candidates_status_idx on candidates(status);
 create index if not exists candidates_email_idx on candidates(lower(email));
--- For installs created before the interviews column existed:
+-- For installs created before these columns existed:
 alter table candidates add column if not exists interviews jsonb not null default '[]';
+alter table candidates add column if not exists source text not null default 'Manual';        -- Manual | Application
+alter table candidates add column if not exists screening_answers jsonb not null default '[]'; -- [{question, answer}]
 
 -- ---------------------------------------------------------------------------
 --  notifications

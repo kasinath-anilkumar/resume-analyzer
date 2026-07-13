@@ -103,6 +103,80 @@ class AIService {
     return model && this.modelMatchesProvider(provider, model) ? model : this.defaultModel(provider);
   }
 
+  // Retry a provider call on transient failures (rate limits, 5xx, network
+  // blips) with exponential backoff. Non-retryable errors (bad key, 4xx) throw
+  // immediately.
+  static async withRetry(fn, { retries = 2, baseDelay = 800 } = {}) {
+    let lastErr;
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        return await fn();
+      } catch (err) {
+        lastErr = err;
+        const status = err.response?.status;
+        const retryable =
+          status === 429 ||
+          (status >= 500 && status < 600) ||
+          ['ECONNRESET', 'ETIMEDOUT', 'ECONNABORTED', 'EAI_AGAIN'].includes(err.code);
+        if (!retryable || attempt === retries) throw err;
+        const wait = baseDelay * Math.pow(2, attempt) + Math.floor(Math.random() * 300);
+        await new Promise((r) => setTimeout(r, wait));
+      }
+    }
+    throw lastErr;
+  }
+
+  // Derive a verdict from the overall score when the model omits/garbles it.
+  static deriveVerdict(score) {
+    const s = Number(score) || 0;
+    if (s >= 80) return 'Strong Fit';
+    if (s >= 65) return 'Potential Fit';
+    if (s >= 45) return 'Weak Fit';
+    return 'Not a Fit';
+  }
+
+  // Coerce the AI result into a safe, complete shape so the UI never breaks on a
+  // missing/garbled field, and enrichment fields always exist.
+  static normalizeAnalysis(parsed) {
+    if (!parsed || typeof parsed !== 'object') return parsed;
+    const a = parsed.aiAnalysis && typeof parsed.aiAnalysis === 'object' ? parsed.aiAnalysis : {};
+    const clamp = (v, d = 0) => {
+      const n = parseInt(v, 10);
+      return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : d;
+    };
+    const arr = (v) => (Array.isArray(v) ? v : []);
+    const VERDICTS = ['Strong Fit', 'Potential Fit', 'Weak Fit', 'Not a Fit'];
+    const SENIORITY = ['Intern', 'Junior', 'Mid', 'Senior', 'Lead', 'Principal'];
+
+    a.overallScore = clamp(a.overallScore);
+    a.technicalScore = clamp(a.technicalScore);
+    a.experienceScore = clamp(a.experienceScore);
+    a.educationScore = clamp(a.educationScore);
+    a.communicationScore = clamp(a.communicationScore);
+    a.cultureFitScore = clamp(a.cultureFitScore);
+    a.matchPercentage = clamp(a.matchPercentage);
+    a.confidence = clamp(a.confidence, 70);
+
+    a.strengths = arr(a.strengths).map(String).filter(Boolean);
+    a.weaknesses = arr(a.weaknesses).map(String).filter(Boolean);
+    a.matchedSkills = arr(a.matchedSkills).map(String).filter(Boolean);
+    a.missingSkills = arr(a.missingSkills).map(String).filter(Boolean);
+    a.interviewQuestions = arr(a.interviewQuestions).map(String).filter(Boolean);
+    a.redFlags = arr(a.redFlags)
+      .filter((f) => f && (f.detail || f.type))
+      .map((f) => ({ type: String(f.type || 'Other'), detail: String(f.detail || '') }));
+
+    a.screeningVerdict = VERDICTS.includes(a.screeningVerdict)
+      ? a.screeningVerdict
+      : this.deriveVerdict(a.overallScore);
+    a.seniorityLevel = SENIORITY.includes(a.seniorityLevel) ? a.seniorityLevel : (a.seniorityLevel ? String(a.seniorityLevel) : '');
+    const yrs = Number(a.totalYearsExperience);
+    a.totalYearsExperience = Number.isFinite(yrs) && yrs >= 0 ? yrs : null;
+
+    parsed.aiAnalysis = a;
+    return parsed;
+  }
+
   // The model to use when the admin hasn't explicitly picked one in Settings.
   static defaultModel(provider) {
     switch (provider) {
@@ -320,13 +394,15 @@ class AIService {
     const { apiKey, provider } = this.resolveKeyProvider(aiConfig);
     const model = this.resolveModel(provider, aiConfig.model && aiConfig.model.trim());
 
-    // 4) Call the provider; propagate a classified error on failure (no fallback).
+    // 4) Call the provider (with transient-failure retry); classify + normalize.
     try {
-      if (provider === 'openai') return await this.analyzeWithOpenAI(resumeText, job, apiKey, model);
-      if (provider === 'claude') return await this.analyzeWithClaude(resumeText, job, apiKey, model);
-      if (provider === 'gemini') return await this.analyzeWithGemini(resumeText, job, apiKey, model);
-      if (provider === 'nvidia') return await this.analyzeWithNvidia(resumeText, job, apiKey, model);
-      throw this.notConfiguredError();
+      let result;
+      if (provider === 'openai') result = await this.withRetry(() => this.analyzeWithOpenAI(resumeText, job, apiKey, model));
+      else if (provider === 'claude') result = await this.withRetry(() => this.analyzeWithClaude(resumeText, job, apiKey, model));
+      else if (provider === 'gemini') result = await this.withRetry(() => this.analyzeWithGemini(resumeText, job, apiKey, model));
+      else if (provider === 'nvidia') result = await this.withRetry(() => this.analyzeWithNvidia(resumeText, job, apiKey, model));
+      else throw this.notConfiguredError();
+      return this.normalizeAnalysis(result);
     } catch (error) {
       if (error.aiClassified) throw error; // already a friendly, classified error
       console.error(`AI analysis failed with provider ${provider}:`, error.message);
@@ -535,23 +611,46 @@ The JSON output must strictly adhere to this schema:
     "communicationScore": 85, // Integer 0-100
     "cultureFitScore": 90, // Integer 0-100
     "explanations": {
-      "overall": "Explanation of the overall score...",
-      "technical": "Explanation of technical alignment...",
-      "experience": "Explanation of experience depth...",
+      "overall": "Explanation of the overall score, citing specific resume evidence...",
+      "technical": "Explanation of technical alignment, citing specific tools/projects...",
+      "experience": "Explanation of experience depth, citing companies/durations...",
       "education": "Explanation of educational pedigree...",
       "communication": "Explanation of written communication and layout quality...",
-      "cultureFit": "Explanation of potential culture fit based on background..."
+      "cultureFit": "Explanation of potential culture fit based on background (NOT demographics)..."
     },
-    "strengths": ["Strength 1", "Strength 2"],
-    "weaknesses": ["Weakness 1", "Weakness 2"],
-    "missingSkills": ["List of skills requested in the job description but missing in the resume"],
-    "careerSummary": "Professional summary of the candidate's career...",
-    "recommendation": "Short recommendation statement (e.g. 'Strong Hire', 'Proceed to Interview', 'Reject')",
-    "matchedSkills": ["List of skills requested in the job description that the candidate HAS"],
+    "strengths": ["Concrete strength backed by resume evidence", "Strength 2"],
+    "weaknesses": ["Concrete weakness or gap vs the job", "Weakness 2"],
+    "missingSkills": ["Skills the job requires that the resume does NOT show"],
+    "matchedSkills": ["Skills the job requires that the candidate HAS"],
+    "careerSummary": "2-3 sentence professional summary of the candidate's career.",
+    "recommendation": "One of exactly: Strong Hire, Interview, Maybe, Reject",
     "matchPercentage": 82, // Integer 0-100 representing job alignment
-    "matchExplanation": "Detailed explanation of why the candidate matches or doesn't match the job requirements..."
+    "matchExplanation": "Detailed explanation of why the candidate matches or doesn't match...",
+
+    // --- Deeper recruiter insights ---
+    "screeningVerdict": "One of exactly: Strong Fit, Potential Fit, Weak Fit, Not a Fit",
+    "seniorityLevel": "One of exactly: Intern, Junior, Mid, Senior, Lead, Principal",
+    "totalYearsExperience": 5.5, // Number: total relevant years of professional experience (0 if none)
+    "confidence": 80, // Integer 0-100: how confident YOU are in this analysis given resume clarity/completeness
+    "redFlags": [
+      // Zero or more genuine concerns a recruiter should probe. Empty array if none.
+      { "type": "One of: Employment gap, Job hopping, Overqualified, Underqualified, Missing core skill, Unclear dates, Career pivot, Short tenure, Other", "detail": "Specific, factual description tied to the resume." }
+    ],
+    "interviewQuestions": [
+      "3-6 tailored questions that verify claims or probe the weaknesses/red flags above (not generic questions)."
+    ]
   }
 }
+
+SCORING RUBRIC — apply consistently so the same resume always scores the same:
+- 90-100: Exceptional, exceeds the job's requirements on this dimension with strong evidence.
+- 75-89: Strong, clearly meets the requirement with solid evidence.
+- 60-74: Adequate, partially meets it or meets it with thin evidence.
+- 40-59: Weak, notable gaps against the requirement.
+- 0-39: Poor / not evidenced in the resume.
+Score ONLY against THIS job's requirements. Do not reward irrelevant experience. Base every score on evidence actually present in the resume text; when evidence is missing, score low and say so rather than assuming.
+
+FAIRNESS (mandatory): Do NOT let name, gender, age, date of birth, nationality, ethnicity, marital status, photo, or personal/hobby details influence ANY score or the verdict. Judge strictly on skills, experience, education, and demonstrated results relevant to the job. If the resume includes such personal attributes, ignore them for scoring.
 
 IMPORTANT — LINKS: The resume text may end with a section labelled "[DETECTED LINKS]" listing hyperlink URLs harvested directly from the document's metadata. Treat those URLs as authoritative and prefer them when filling githubUrl, linkedInUrl, portfolioUrl and project links. Classify them:
 - a github.com URL -> githubUrl
@@ -577,7 +676,7 @@ CANDIDATE RESUME TEXT:
 ${resumeText}
 ----------------------------------------
 
-Analyze the resume text, extract all fields, compute scores out of 100, and return the required JSON object.`;
+Analyze the resume against THIS job. Extract every field, apply the scoring rubric consistently, and also fill the recruiter-insight fields (screeningVerdict, seniorityLevel, totalYearsExperience, confidence, redFlags, interviewQuestions). Red flags and interview questions must be specific to this candidate and job — never generic. Return the required JSON object only.`;
   }
 
   // --- OpenAI Provider ---

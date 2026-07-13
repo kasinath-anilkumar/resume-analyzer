@@ -16,6 +16,7 @@ const toApi = (row) =>
     location: row.location,
     numberOpenings: row.number_openings,
     status: row.status,
+    screeningQuestions: row.screening_questions || [],
     createdBy: row.created_by,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -42,6 +43,11 @@ const toRow = (data = {}) => {
   if (data.location !== undefined) row.location = data.location;
   if (data.numberOpenings !== undefined) row.number_openings = data.numberOpenings;
   if (data.status !== undefined) row.status = data.status;
+  if (data.screeningQuestions !== undefined) {
+    row.screening_questions = Array.isArray(data.screeningQuestions)
+      ? data.screeningQuestions.map((q) => String(q).trim()).filter(Boolean)
+      : [];
+  }
   return row;
 };
 
@@ -113,6 +119,47 @@ const JobRepo = {
     const { count, error } = await q;
     if (error) throw error;
     return count || 0;
+  },
+
+  // --- Public (careers page) — Active jobs only, safe fields ---------------
+  toPublic(row) {
+    const j = toApi(row);
+    if (!j) return j;
+    return {
+      _id: j._id,
+      title: j.title,
+      department: j.department,
+      description: j.description,
+      requiredSkills: j.requiredSkills,
+      preferredSkills: j.preferredSkills,
+      experience: j.experience,
+      salaryRange: j.salaryRange,
+      employmentType: j.employmentType,
+      location: j.location,
+      screeningQuestions: j.screeningQuestions,
+      createdAt: j.createdAt,
+    };
+  },
+
+  async listPublic() {
+    const { data, error } = await getClient()
+      .from(TABLE)
+      .select('*')
+      .eq('status', 'Active')
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    return (data || []).map((r) => this.toPublic(r));
+  },
+
+  async findPublicById(id) {
+    const { data, error } = await getClient()
+      .from(TABLE)
+      .select('*')
+      .eq('id', id)
+      .eq('status', 'Active')
+      .maybeSingle();
+    if (error) throw error;
+    return data ? this.toPublic(data) : null;
   },
 };
 

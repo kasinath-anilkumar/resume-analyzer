@@ -16,7 +16,8 @@ import {
   FileCheck,
   Trash2,
   Download,
-  Copy
+  Copy,
+  AlertTriangle
 } from 'lucide-react';
 const Candidates = () => {
   const { user } = useAuth();
@@ -34,6 +35,7 @@ const Candidates = () => {
   const [selectedStatus, setSelectedStatus] = useState(searchParams.get('status') || '');
   const [minScore, setMinScore] = useState('');
   const [selectedSkill, setSelectedSkill] = useState('');
+  const [selectedVerdict, setSelectedVerdict] = useState(''); // AI screening verdict (client-side)
 
   // UI state
   const [selectedCandidateIds, setSelectedCandidateIds] = useState([]);
@@ -125,6 +127,22 @@ const Candidates = () => {
     }
   };
 
+  // Client-side AI verdict view filter (verdict lives in aiAnalysis jsonb).
+  const displayed = selectedVerdict
+    ? candidates.filter((c) => (c.aiAnalysis?.screeningVerdict || '') === selectedVerdict)
+    : candidates;
+
+  // Colour for the AI verdict badge.
+  const verdictBadge = (v) => {
+    switch (v) {
+      case 'Strong Fit': return 'bg-emerald-500/10 text-emerald-600 border border-emerald-500/20';
+      case 'Potential Fit': return 'bg-brand-500/10 text-brand-600 border border-brand-500/20';
+      case 'Weak Fit': return 'bg-amber-500/10 text-amber-600 border border-amber-500/20';
+      case 'Not a Fit': return 'bg-rose-500/10 text-rose-600 border border-rose-500/20';
+      default: return '';
+    }
+  };
+
   const getScoreColor = (score) => {
     if (score >= 80) return 'bg-emerald-500/10 text-emerald-600 border border-emerald-500/20';
     if (score >= 60) return 'bg-amber-500/10 text-amber-600 border border-amber-500/20';
@@ -133,13 +151,13 @@ const Candidates = () => {
 
   // Export the currently filtered candidates to a CSV file (client-side).
   const exportCsv = () => {
-    if (!candidates.length) return;
-    const headers = ['Name', 'Email', 'Phone', 'Target Role', 'Department', 'Status', 'Overall Score', 'Match %', 'Skills', 'Applied'];
+    if (!displayed.length) return;
+    const headers = ['Name', 'Email', 'Phone', 'Target Role', 'Department', 'Status', 'AI Verdict', 'Overall Score', 'Match %', 'Skills', 'Applied'];
     const esc = (v) => {
       const s = String(v ?? '');
       return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     };
-    const rows = candidates.map((c) =>
+    const rows = displayed.map((c) =>
       [
         c.name,
         c.email,
@@ -147,6 +165,7 @@ const Candidates = () => {
         c.jobId?.title || '',
         c.jobId?.department || '',
         c.status,
+        c.aiAnalysis?.screeningVerdict || '',
         c.aiAnalysis?.overallScore ?? '',
         c.aiAnalysis?.matchPercentage ?? '',
         (c.skills || []).join('; '),
@@ -196,7 +215,7 @@ const Candidates = () => {
       </div>
 
       {/* Filter toolbar */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3 p-3 bg-white dark:bg-darkCard border border-slate-200/60 dark:border-darkBorder rounded-xl shadow-premium dark:shadow-premium-dark">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-3 p-3 bg-white dark:bg-darkCard border border-slate-200/60 dark:border-darkBorder rounded-xl shadow-premium dark:shadow-premium-dark">
         {/* Search */}
         <div className="relative col-span-1 lg:col-span-2">
           <Search size={16} className="absolute left-3.5 top-3 text-slate-400" />
@@ -259,6 +278,21 @@ const Candidates = () => {
             <option value="50">50+ (Average)</option>
           </select>
         </div>
+
+        {/* AI verdict */}
+        <div>
+          <select
+            value={selectedVerdict}
+            onChange={(e) => setSelectedVerdict(e.target.value)}
+            className="w-full h-10 px-3 border border-slate-200 dark:border-darkBorder rounded-xl bg-white dark:bg-slate-900 text-xs text-slate-700 dark:text-slate-300 focus:outline-none"
+          >
+            <option value="">All AI Verdicts</option>
+            <option value="Strong Fit">Strong Fit</option>
+            <option value="Potential Fit">Potential Fit</option>
+            <option value="Weak Fit">Weak Fit</option>
+            <option value="Not a Fit">Not a Fit</option>
+          </select>
+        </div>
       </div>
 
       {/* Main Table View */}
@@ -268,7 +302,7 @@ const Candidates = () => {
             <div key={i} className="h-12 bg-slate-100 dark:bg-slate-800 rounded-xl" />
           ))}
         </div>
-      ) : candidates.length === 0 ? (
+      ) : displayed.length === 0 ? (
         <div className="flex flex-col items-center justify-center p-16 border border-dashed border-slate-200 dark:border-darkBorder rounded-2xl bg-white dark:bg-darkCard text-center">
           <User className="text-slate-300 dark:text-slate-700 mb-3" size={40} />
           <h3 className="text-sm font-bold text-slate-700 dark:text-slate-300">No Candidates Found</h3>
@@ -292,7 +326,7 @@ const Candidates = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-darkBorder/60 text-xs">
-                {candidates.map((cand) => (
+                {displayed.map((cand) => (
                   <tr
                     key={cand._id}
                     className={`hover:bg-slate-50/40 dark:hover:bg-slate-800/20 transition-all ${
@@ -331,8 +365,23 @@ const Candidates = () => {
                                 <Copy size={9} /> Dup
                               </span>
                             )}
+                            {cand.aiAnalysis?.redFlags?.length > 0 && (
+                              <span
+                                title={`${cand.aiAnalysis.redFlags.length} AI red flag(s): ${cand.aiAnalysis.redFlags.map((f) => f.type).join(', ')}`}
+                                className="inline-flex items-center gap-0.5 px-1 py-0.5 rounded bg-rose-500/10 text-rose-600 border border-rose-500/20 text-[8.5px] font-bold"
+                              >
+                                <AlertTriangle size={9} /> {cand.aiAnalysis.redFlags.length}
+                              </span>
+                            )}
                           </div>
-                          <span className="text-[10px] text-slate-400">{cand.email}</span>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            <span className="text-[10px] text-slate-400">{cand.email}</span>
+                            {cand.aiAnalysis?.screeningVerdict && (
+                              <span className={`text-[8.5px] font-bold px-1.5 py-0.5 rounded ${verdictBadge(cand.aiAnalysis.screeningVerdict)}`}>
+                                {cand.aiAnalysis.screeningVerdict}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </td>

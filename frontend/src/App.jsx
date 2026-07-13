@@ -6,10 +6,14 @@ import { UploadProvider } from './context/UploadContext';
 import { PosterExtractionProvider } from './context/PosterExtractionContext';
 import DashboardLayout from './layouts/DashboardLayout';
 import Login from './pages/Login';
+import ResetPassword from './pages/ResetPassword';
+import Careers from './pages/Careers';
+import CareerApply from './pages/CareerApply';
 import Dashboard from './pages/Dashboard';
 import Jobs from './pages/Jobs';
 import JobForm from './pages/JobForm';
 import Candidates from './pages/Candidates';
+import Shortlist from './pages/Shortlist';
 import CandidateDetails from './pages/CandidateDetails';
 import Upload from './pages/Upload';
 import Pipeline from './pages/Pipeline';
@@ -48,6 +52,9 @@ function App() {
           <Router>
             <Routes>
             <Route path="/login" element={<Login />} />
+            <Route path="/reset-password" element={<ResetPassword />} />
+            <Route path="/careers" element={<Careers />} />
+            <Route path="/careers/:id" element={<CareerApply />} />
 
             <Route
               path="/"
@@ -63,6 +70,7 @@ function App() {
               <Route path="jobs/:id/edit" element={<JobForm />} />
               <Route path="upload" element={<Upload />} />
               <Route path="candidates" element={<Candidates />} />
+              <Route path="shortlist" element={<Shortlist />} />
               <Route path="candidates/:id" element={<CandidateDetails />} />
               <Route path="pipeline" element={<Pipeline />} />
               <Route path="compare" element={<Compare />} />

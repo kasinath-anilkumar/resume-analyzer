@@ -3,6 +3,8 @@ const router = express.Router();
 const {
   loginUser,
   forgotPassword,
+  resetPassword,
+  changePassword,
   getMe,
   getUsers,
   createUser,
@@ -17,7 +19,9 @@ const { authLimiter } = require('../middleware/rateLimit');
 // Rate-limit the unauthenticated credential endpoints to slow brute-forcing.
 router.post('/login', authLimiter, loginUser);
 router.post('/forgot-password', authLimiter, forgotPassword);
+router.post('/reset-password', authLimiter, resetPassword);
 router.get('/me', protect, getMe);
+router.put('/password', protect, changePassword);
 
 // --- Admin-only User Management ---
 router.route('/users')

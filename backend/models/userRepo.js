@@ -110,6 +110,55 @@ const UserRepo = {
     if (!rawRow || !rawRow.password) return false;
     return bcrypt.compare(plain, rawRow.password);
   },
+
+  // --- Password reset ---------------------------------------------------
+  async setResetToken(id, tokenHash, expiresIso) {
+    const { error } = await getClient()
+      .from(TABLE)
+      .update({ reset_token_hash: tokenHash, reset_token_expires: expiresIso, updated_at: new Date().toISOString() })
+      .eq('id', id);
+    if (error) throw error;
+    return true;
+  },
+
+  // Find a user by a (hashed) reset token that hasn't expired. Returns the raw
+  // row or null.
+  async findByResetTokenHash(tokenHash) {
+    const { data, error } = await getClient()
+      .from(TABLE)
+      .select('*')
+      .eq('reset_token_hash', tokenHash)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) return null;
+    if (!data.reset_token_expires || new Date(data.reset_token_expires) < new Date()) return null;
+    return data;
+  },
+
+  // Set a new password (hashed) and clear any reset token.
+  async updatePassword(id, newPlainPassword) {
+    const salt = await bcrypt.genSalt(10);
+    const hashed = await bcrypt.hash(newPlainPassword, salt);
+    const { error } = await getClient()
+      .from(TABLE)
+      .update({
+        password: hashed,
+        reset_token_hash: null,
+        reset_token_expires: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id);
+    if (error) throw error;
+    return true;
+  },
+
+  // Raw row (incl. password hash) by id — for verifying the current password
+  // on a self-service change.
+  async findRawById(id) {
+    const { data, error } = await getClient().from(TABLE).select('*').eq('id', id).maybeSingle();
+    if (error) throw error;
+    return data || null;
+  },
 };
 
 module.exports = UserRepo;
