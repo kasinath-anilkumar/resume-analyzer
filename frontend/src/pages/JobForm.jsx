@@ -3,6 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { usePosterExtraction } from '../context/PosterExtractionContext';
+import { CITY_SUGGESTIONS } from '../data/cities';
 import { ChevronLeft, Loader2, AlertCircle, Sparkles, UploadCloud, CheckCircle2, X, Plus, Trash2, ClipboardList } from 'lucide-react';
 
 const emptyForm = {
@@ -86,7 +87,6 @@ const JobForm = () => {
           setFormData((prev) => ({
             ...prev,
             department: s.departments?.[0] || '',
-            location: s.locations?.[0] || '',
           }));
         }
       } catch (err) {
@@ -211,13 +211,9 @@ const JobForm = () => {
 
   // Ensure the current value is always selectable, even if settings changed.
   const departments = settings.departments || [];
-  const locations = settings.locations || [];
   const deptOptions = formData.department && !departments.includes(formData.department)
     ? [formData.department, ...departments]
     : departments;
-  const locOptions = formData.location && !locations.includes(formData.location)
-    ? [formData.location, ...locations]
-    : locations;
 
   if (loading) {
     return (
@@ -313,12 +309,18 @@ const JobForm = () => {
         <div className="grid grid-cols-2 sm:grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-1">
             <label className={labelClass}>Location</label>
-            <select required name="location" value={formData.location} onChange={handleInputChange} className={selectClass}>
-              <option value="">Select Location</option>
-              {locOptions.map((l) => (
-                <option key={l} value={l}>{l}</option>
-              ))}
-            </select>
+            <input
+              required
+              name="location"
+              list="job-city-suggestions"
+              value={formData.location}
+              onChange={handleInputChange}
+              placeholder="Start typing a city…"
+              className={selectClass}
+            />
+            <datalist id="job-city-suggestions">
+              {CITY_SUGGESTIONS.map((c) => <option key={c} value={c} />)}
+            </datalist>
           </div>
           <div className="space-y-1">
             <label className={labelClass}>Employment Type</label>

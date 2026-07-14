@@ -9,6 +9,7 @@ const {
   duplicateJob,
   closeJob,
   archiveJob,
+  activateJob,
   extractJobFromPoster,
 } = require('../controllers/jobController');
 const { protect, authorize } = require('../middleware/auth');
@@ -36,5 +37,6 @@ router.route('/:id')
 router.post('/:id/duplicate', protect, authorize('Admin', 'Recruiter'), duplicateJob);
 router.put('/:id/close', protect, authorize('Admin', 'Recruiter'), closeJob);
 router.put('/:id/archive', protect, authorize('Admin', 'Recruiter'), archiveJob);
+router.put('/:id/activate', protect, authorize('Admin', 'Recruiter'), activateJob);
 
 module.exports = router;

@@ -79,6 +79,66 @@ exports.uploadResume = async (req, res) => {
   }
 };
 
+// @desc    Manually add a candidate with no résumé (details typed by a recruiter).
+// @route   POST /api/candidates/manual
+// @access  Private (Admin, Recruiter)
+exports.createManualCandidate = async (req, res) => {
+  try {
+    const {
+      jobId, name, email, phone, currentLocation, salaryExpectation,
+      skills, linkedInUrl, portfolioUrl, githubUrl, summary, status,
+    } = req.body;
+
+    if (!jobId || !name || !email) {
+      return res.status(400).json({ success: false, message: 'Name, email and a target job are required.' });
+    }
+    const job = await JobRepo.findById(jobId);
+    if (!job) {
+      return res.status(404).json({ success: false, message: 'Target job not found' });
+    }
+
+    const cleanEmail = String(email).trim().toLowerCase();
+    try {
+      if (await CandidateRepo.existsForJobEmail(job._id, cleanEmail)) {
+        return res.status(409).json({ success: false, code: 'ALREADY_EXISTS', message: 'A candidate with this email already exists for this job.' });
+      }
+    } catch (dupErr) {
+      console.error('Manual add dedup check failed:', dupErr.message);
+    }
+
+    const skillsArr = Array.isArray(skills)
+      ? skills.map((s) => String(s).trim()).filter(Boolean)
+      : String(skills || '').split(',').map((s) => s.trim()).filter(Boolean);
+
+    const VALID = ['Applied', 'Screening', 'Shortlisted', 'Interview', 'Technical Round', 'HR Round', 'Offer', 'Hired', 'Rejected'];
+    const initialStatus = VALID.includes(status) ? status : 'Applied';
+
+    const candidate = await CandidateRepo.create({
+      name: name.trim(),
+      email: cleanEmail,
+      phone: (phone || '').trim(),
+      currentLocation: (currentLocation || '').trim(),
+      salaryExpectation: (salaryExpectation || '').trim(),
+      skills: skillsArr,
+      githubUrl: (githubUrl || '').trim(),
+      linkedInUrl: (linkedInUrl || '').trim(),
+      portfolioUrl: (portfolioUrl || '').trim(),
+      resumeUrl: null, // manually entered — no résumé on file
+      jobId: job._id,
+      status: initialStatus,
+      source: 'Manual',
+      analysisStatus: 'completed', // nothing to analyze
+      aiAnalysis: summary && String(summary).trim() ? { careerSummary: String(summary).trim() } : {},
+    });
+
+    AuditRepo.log(req.user, 'candidate.create_manual', { entityType: 'candidate', entityId: candidate._id, summary: `Manually added candidate ${candidate.name}` });
+    return res.status(201).json({ success: true, message: 'Candidate added.', data: candidate });
+  } catch (error) {
+    console.error('Manual candidate create error:', error);
+    return res.status(500).json({ success: false, message: 'Server error adding candidate' });
+  }
+};
+
 // @desc    Get candidates (with advanced search & filtering)
 // @route   GET /api/candidates
 // @access  Private
@@ -372,6 +432,9 @@ exports.reanalyzeCandidate = async (req, res) => {
     const candidate = await CandidateRepo.getRaw(req.params.id);
     if (!candidate) {
       return res.status(404).json({ success: false, message: 'Candidate not found' });
+    }
+    if (!candidate.resume_url) {
+      return res.status(400).json({ success: false, message: 'This candidate was added manually and has no résumé to analyze.' });
     }
     const job = await JobRepo.findById(candidate.job_id);
     if (!job) {

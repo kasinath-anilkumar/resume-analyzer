@@ -129,38 +129,39 @@ const Notifications = () => {
 
   const inputClass =
     'w-full h-10 px-3 border border-slate-200 dark:border-darkBorder rounded-xl bg-slate-50/50 dark:bg-slate-900 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500';
-  const labelClass = 'text-[10.5px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider';
+  const labelClass = 'text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider';
 
   const audiences = [
     { type: 'all', label: 'Everyone', icon: Globe },
     { type: 'role', label: 'By role', icon: Shield },
-    { type: 'user', label: 'Specific account', icon: User },
+    { type: 'user', label: 'Account', icon: User },
   ];
 
   return (
-    <div className="space-y-3 animate-in fade-in duration-300 pb-10">
+    <div className="space-y-4 animate-in fade-in duration-300 pb-10">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 bg-gradient-to-r from-brand-600 to-indigo-700 text-white rounded-2xl shadow-md relative overflow-hidden">
         <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full blur-2xl -mr-10 -mt-10" />
         <div className="relative z-10 space-y-1">
           <div className="flex items-center space-x-2">
             <div className="p-1 bg-white/10 rounded-lg"><Bell size={18} className="text-white" /></div>
-            <h2 className="text-lg font-extrabold tracking-tight">Notifications</h2>
+            <h2 className="text-base sm:text-lg font-extrabold tracking-tight text-white">Notifications</h2>
           </div>
-          <p className="text-[11px] text-brand-100 max-w-xl">Broadcast a message to everyone, a role, or a specific account.</p>
+          <p className="text-[10px] sm:text-xs text-brand-100 max-w-xl">Broadcast announcements to all platform users, selected roles, or individual accounts.</p>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
         {/* Compose */}
-        <div className="lg:col-span-1 p-4 bg-white dark:bg-darkCard border border-slate-200/60 dark:border-darkBorder rounded-2xl shadow-premium dark:shadow-premium-dark">
+        <div className="lg:col-span-1 p-4 bg-white dark:bg-darkCard border border-slate-200/60 dark:border-darkBorder rounded-2xl shadow-sm">
           <h3 className="text-xs font-extrabold text-slate-800 dark:text-slate-200 flex items-center mb-3">
-            <Send size={14} className="mr-2 text-brand-500" /> Compose
+            <Send size={14} className="mr-2 text-brand-500" /> Compose Message
           </h3>
-          <form onSubmit={handleSend} className="space-y-3">
+          <form onSubmit={handleSend} className="space-y-3.5">
             <div className="space-y-1.5">
-              <label className={labelClass}>Send to</label>
-              <div className="grid grid-cols-3 gap-1.5">
+              <label className={labelClass}>Audience Selection</label>
+              {/* Responsive: Stack buttons vertically on mobile, row on tablet/desktop */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5">
                 {audiences.map((a) => {
                   const Icon = a.icon;
                   const active = form.targetType === a.type;
@@ -169,14 +170,14 @@ const Notifications = () => {
                       type="button"
                       key={a.type}
                       onClick={() => setForm((prev) => ({ ...prev, targetType: a.type }))}
-                      className={`flex flex-col items-center gap-1 py-2 rounded-xl border text-[10px] font-semibold transition ${
+                      className={`flex flex-row sm:flex-col items-center justify-center gap-1.5 py-2.5 sm:py-2 rounded-xl border text-[10px] font-semibold transition ${
                         active
                           ? 'border-brand-500 bg-brand-500/10 text-brand-600 dark:text-brand-400'
                           : 'border-slate-200 dark:border-darkBorder text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800/40'
                       }`}
                     >
-                      <Icon size={15} />
-                      {a.label}
+                      <Icon size={14} />
+                      <span>{a.label}</span>
                     </button>
                   );
                 })}
@@ -185,7 +186,7 @@ const Notifications = () => {
 
             {form.targetType === 'role' && (
               <div className="space-y-1">
-                <label className={labelClass}>Role</label>
+                <label className={labelClass}>Target Role</label>
                 <select name="targetRole" value={form.targetRole} onChange={handleChange} className={inputClass}>
                   {ROLES.map((r) => (
                     <option key={r} value={r}>{r}</option>
@@ -196,7 +197,7 @@ const Notifications = () => {
 
             {form.targetType === 'user' && (
               <div className="space-y-1">
-                <label className={labelClass}>Recipient account</label>
+                <label className={labelClass}>Recipient Account</label>
                 <select name="targetUserId" value={form.targetUserId} onChange={handleChange} className={inputClass}>
                   <option value="">Select a user…</option>
                   {users.map((u) => (
@@ -211,7 +212,7 @@ const Notifications = () => {
               <input name="title" value={form.title} onChange={handleChange} placeholder="e.g. System maintenance" className={inputClass} />
             </div>
             <div className="space-y-1">
-              <label className={labelClass}>Message</label>
+              <label className={labelClass}>Message announcement</label>
               <textarea
                 name="message"
                 rows="4"
@@ -233,9 +234,9 @@ const Notifications = () => {
         </div>
 
         {/* Sent list */}
-        <div className="lg:col-span-2 bg-white dark:bg-darkCard border border-slate-200/60 dark:border-darkBorder rounded-2xl shadow-premium dark:shadow-premium-dark overflow-hidden">
-          <div className="px-4 py-2.5 border-b border-slate-100 dark:border-darkBorder/60 bg-slate-50/50 dark:bg-slate-900/30">
-            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">Sent ({sent.length})</span>
+        <div className="lg:col-span-2 bg-white dark:bg-darkCard border border-slate-200/60 dark:border-darkBorder rounded-2xl shadow-sm overflow-hidden">
+          <div className="px-4 py-3 border-b border-slate-100 dark:border-darkBorder/60 bg-slate-50/50 dark:bg-slate-900/30">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Sent Broadcasts ({sent.length})</span>
           </div>
           {loading ? (
             <div className="p-10 flex items-center justify-center"><Loader2 size={24} className="animate-spin text-brand-500" /></div>
@@ -250,14 +251,14 @@ const Notifications = () => {
                 <div key={n._id} className="p-4 flex items-start justify-between gap-3 hover:bg-slate-50/40 dark:hover:bg-slate-800/20 transition">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="inline-flex items-center gap-1 text-[9.5px] font-bold uppercase px-2 py-0.5 rounded-full bg-brand-500/10 text-brand-600 dark:text-brand-400">
+                      <span className="inline-flex items-center gap-1 text-[9px] font-bold uppercase px-2 py-0.5 rounded-full bg-brand-500/10 text-brand-600 dark:text-brand-400">
                         <UsersIcon size={11} /> {targetLabel(n)}
                       </span>
-                      <span className="text-[10px] text-slate-400">{timeAgo(n.createdAt)}</span>
+                      <span className="text-[9.5px] text-slate-400 font-medium">{timeAgo(n.createdAt)}</span>
                     </div>
-                    {n.title && <p className="text-xs font-bold text-slate-800 dark:text-slate-200 mt-1.5">{n.title}</p>}
-                    <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5 leading-relaxed">{n.message}</p>
-                    <p className="text-[10px] text-slate-400 mt-1">Sent by {n.senderName} · {(n.readBy || []).length} read</p>
+                    {n.title && <p className="text-xs font-bold text-slate-800 dark:text-slate-200 mt-2">{n.title}</p>}
+                    <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 leading-relaxed">{n.message}</p>
+                    <p className="text-[10px] text-slate-400 mt-2">Sent by {n.senderName} · {(n.readBy || []).length} read</p>
                   </div>
                   <button onClick={() => handleDelete(n._id)} className="p-1.5 text-slate-400 hover:text-rose-500 rounded-lg transition flex-shrink-0" title="Delete">
                     <Trash2 size={14} />

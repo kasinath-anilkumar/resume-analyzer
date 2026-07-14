@@ -18,7 +18,8 @@ import {
   Trash2,
   X,
   Loader2,
-  AlertCircle
+  AlertCircle,
+  CheckCircle2
 } from 'lucide-react';
 
 const Jobs = () => {
@@ -34,6 +35,7 @@ const Jobs = () => {
   const [selectedDept, setSelectedDept] = useState('');
   const [selectedLoc, setSelectedLoc] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('Active');
+  const [showFilters, setShowFilters] = useState(false);
 
   // Active actions dropdowns
   const [activeMenuId, setActiveMenuId] = useState(null);
@@ -107,6 +109,17 @@ const Jobs = () => {
     }
   };
 
+  // Re-activate: reopen a Closed job, publish a Draft, or restore an Archived one.
+  const handleActivateJob = async (jobId) => {
+    try {
+      await api.put(`/jobs/${jobId}/activate`);
+      fetchJobs();
+      setActiveMenuId(null);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   const handleDuplicateJob = async (jobId) => {
     try {
       await api.post(`/jobs/${jobId}/duplicate`);
@@ -153,59 +166,73 @@ const Jobs = () => {
       </div>
 
       {/* Filter Toolbar */}
-      <div className="flex flex-col lg:flex-row gap-4 p-4 bg-white dark:bg-darkCard border border-slate-200/60 dark:border-darkBorder rounded-2xl shadow-premium dark:shadow-premium-dark">
-        {/* Search */}
-        <div className="relative flex-1">
-          <Search size={16} className="absolute left-3.5 top-3 text-slate-400" />
-          <input
-            type="text"
-            placeholder="Search by job title or description..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full h-10 pl-10 pr-4 border border-slate-200 dark:border-darkBorder rounded-xl bg-slate-50/50 dark:bg-slate-900 text-xs text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
-          />
+      <div className="bg-white dark:bg-darkCard border border-slate-200/60 dark:border-darkBorder rounded-2xl p-4 shadow-premium dark:shadow-premium-dark space-y-3.5">
+        <div className="flex items-center gap-3">
+          {/* Search */}
+          <div className="relative flex-1">
+            <Search size={16} className="absolute left-3.5 top-3 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Search by job title or description..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full h-10 pl-10 pr-4 border border-slate-200 dark:border-darkBorder rounded-xl bg-slate-50/50 dark:bg-slate-900 text-xs text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
+            />
+          </div>
+
+          {/* Toggle Button for Mobile */}
+          <button
+            onClick={() => setShowFilters(!showFilters)}
+            className={`lg:hidden flex items-center justify-center w-10 h-10 border border-slate-200 dark:border-darkBorder rounded-xl text-slate-600 dark:text-slate-400 focus:outline-none transition-all ${showFilters ? 'bg-[#c5a880]/15 border-[#c5a880] text-[#c5a880]' : 'bg-white dark:bg-slate-900'}`}
+            title="Toggle Advanced Filters"
+          >
+            <SlidersHorizontal size={16} />
+          </button>
         </div>
 
-        {/* Dept dropdown */}
-        <div className="w-full lg:w-48">
-          <select
-            value={selectedDept}
-            onChange={(e) => setSelectedDept(e.target.value)}
-            className="w-full h-10 px-3 border border-slate-200 dark:border-darkBorder rounded-xl bg-white dark:bg-slate-900 text-xs text-slate-700 dark:text-slate-300 focus:outline-none"
-          >
-            <option value="">All Departments</option>
-            {departments.map((d) => (
-              <option key={d} value={d}>{d}</option>
-            ))}
-          </select>
-        </div>
+        {/* Advanced Filters: Collapsible on mobile, always visible on desktop */}
+        <div className={`${showFilters ? 'flex animate-in fade-in slide-in-from-top-2 duration-200' : 'hidden'} lg:flex flex-col lg:flex-row gap-3 w-full`}>
+          {/* Dept dropdown */}
+          <div className="w-full lg:w-48">
+            <select
+              value={selectedDept}
+              onChange={(e) => setSelectedDept(e.target.value)}
+              className="w-full h-10 px-3 border border-slate-200 dark:border-darkBorder rounded-xl bg-white dark:bg-slate-900 text-xs text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
+            >
+              <option value="">All Departments</option>
+              {departments.map((d) => (
+                <option key={d} value={d}>{d}</option>
+              ))}
+            </select>
+          </div>
 
-        {/* Location dropdown */}
-        <div className="w-full lg:w-48">
-          <select
-            value={selectedLoc}
-            onChange={(e) => setSelectedLoc(e.target.value)}
-            className="w-full h-10 px-3 border border-slate-200 dark:border-darkBorder rounded-xl bg-white dark:bg-slate-900 text-xs text-slate-700 dark:text-slate-300 focus:outline-none"
-          >
-            <option value="">All Locations</option>
-            {locations.map((l) => (
-              <option key={l} value={l}>{l}</option>
-            ))}
-          </select>
-        </div>
+          {/* Location dropdown */}
+          <div className="w-full lg:w-48">
+            <select
+              value={selectedLoc}
+              onChange={(e) => setSelectedLoc(e.target.value)}
+              className="w-full h-10 px-3 border border-slate-200 dark:border-darkBorder rounded-xl bg-white dark:bg-slate-900 text-xs text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
+            >
+              <option value="">All Locations</option>
+              {locations.map((l) => (
+                <option key={l} value={l}>{l}</option>
+              ))}
+            </select>
+          </div>
 
-        {/* Status filters */}
-        <div className="w-full lg:w-48">
-          <select
-            value={selectedStatus}
-            onChange={(e) => setSelectedStatus(e.target.value)}
-            className="w-full h-10 px-3 border border-slate-200 dark:border-darkBorder rounded-xl bg-white dark:bg-slate-900 text-xs text-slate-700 dark:text-slate-300 focus:outline-none"
-          >
-            <option value="Active">Active Postings</option>
-            <option value="Closed">Closed Openings</option>
-            <option value="Draft">Draft Openings</option>
-            <option value="Archived">Archived Openings</option>
-          </select>
+          {/* Status filters */}
+          <div className="w-full lg:w-48">
+            <select
+              value={selectedStatus}
+              onChange={(e) => setSelectedStatus(e.target.value)}
+              className="w-full h-10 px-3 border border-slate-200 dark:border-darkBorder rounded-xl bg-white dark:bg-slate-900 text-xs text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
+            >
+              <option value="Active">Active Postings</option>
+              <option value="Closed">Closed Openings</option>
+              <option value="Draft">Draft Openings</option>
+              <option value="Archived">Archived Openings</option>
+            </select>
+          </div>
         </div>
       </div>
 
@@ -275,6 +302,15 @@ const Jobs = () => {
                             >
                               <Copy size={13} className="mr-2" /> Duplicate Job
                             </button>
+                            {job.status !== 'Active' && (
+                              <button
+                                onClick={() => handleActivateJob(job._id)}
+                                className="flex items-center w-full px-3.5 py-2 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 text-emerald-600 text-left"
+                              >
+                                <CheckCircle2 size={13} className="mr-2" />
+                                {job.status === 'Closed' ? 'Reopen Opening' : job.status === 'Draft' ? 'Publish Job' : 'Restore Job'}
+                              </button>
+                            )}
                             {job.status === 'Active' && (
                               <button
                                 onClick={() => handleCloseJob(job._id)}

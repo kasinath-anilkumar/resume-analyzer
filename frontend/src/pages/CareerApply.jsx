@@ -5,6 +5,7 @@ import portalApi from '../services/portalApi';
 import { useApplicantAuth } from '../context/ApplicantAuthContext';
 import PhoneInput, { isValidPhoneNumber } from 'react-phone-number-input';
 import { CITY_SUGGESTIONS } from '../data/cities';
+import RichText from '../utils/richText';
 import {
   Briefcase, MapPin, Clock, ChevronLeft, Loader2, UploadCloud,
   CheckCircle2, AlertCircle, FileText, ClipboardList, AlertTriangle, ArrowRight,
@@ -272,8 +273,8 @@ const CareerApply = () => {
                     <h3 className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#1c1c1c] dark:text-[#f5efe9] border-b luxury-border-thin pb-2 mb-4">
                       Role Description
                     </h3>
-                    <p className="text-[14px] text-black dark:text-slate-400 leading-loose tracking-wide whitespace-pre-line font-light">
-                      {job.description}
+                    <p className="text-[14px] text-black dark:text-slate-400 leading-loose tracking-wide font-light">
+                      <RichText text={job.description} />
                     </p>
                   </div>
 
@@ -298,8 +299,8 @@ const CareerApply = () => {
                   {/* Description Read More */}
                   <div className="border luxury-border-thin p-4">
                     <span className="text-[9px] font-bold text-slate-400 uppercase tracking-[0.2em] block mb-3">Role Description</span>
-                    <p className="text-[13px] text-slate-600 dark:text-slate-400 leading-loose tracking-wide whitespace-pre-line font-light">
-                      {descExpanded ? job.description : `${descriptionPreview}...`}
+                    <p className="text-[13px] text-slate-600 dark:text-slate-400 leading-loose tracking-wide font-light">
+                      <RichText text={descExpanded ? job.description : `${descriptionPreview}...`} />
                     </p>
                     {hasMoreDescription && (
                       <button

@@ -19,6 +19,7 @@ import Dashboard from './pages/Dashboard';
 import Jobs from './pages/Jobs';
 import JobForm from './pages/JobForm';
 import Candidates from './pages/Candidates';
+import AddCandidate from './pages/AddCandidate';
 import Trash from './pages/Trash';
 import Shortlist from './pages/Shortlist';
 import CandidateDetails from './pages/CandidateDetails';
@@ -26,7 +27,8 @@ import Upload from './pages/Upload';
 import Pipeline from './pages/Pipeline';
 import Compare from './pages/Compare';
 import Settings from './pages/Settings';
-import UsersPage from './pages/Users';
+import Applicants from './pages/Applicants';
+import ApplicantDetail from './pages/ApplicantDetail';
 import AuditLog from './pages/AuditLog';
 import Notifications from './pages/Notifications';
 import { Loader2 } from 'lucide-react';
@@ -102,13 +104,15 @@ function App() {
               <Route path="jobs/:id/edit" element={<JobForm />} />
               <Route path="upload" element={<Upload />} />
               <Route path="candidates" element={<Candidates />} />
+              <Route path="candidates/new" element={<AddCandidate />} />
               <Route path="trash" element={<Trash />} />
               <Route path="shortlist" element={<Shortlist />} />
               <Route path="candidates/:id" element={<CandidateDetails />} />
               <Route path="pipeline" element={<Pipeline />} />
               <Route path="compare" element={<Compare />} />
               <Route path="settings" element={<Settings />} />
-              <Route path="users" element={<UsersPage />} />
+              <Route path="applicants" element={<Applicants />} />
+              <Route path="applicants/:id" element={<ApplicantDetail />} />
               <Route path="audit" element={<AuditLog />} />
               <Route path="notifications" element={<Notifications />} />
             </Route>

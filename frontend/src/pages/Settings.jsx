@@ -20,8 +20,22 @@ import {
   Key,
   Layers,
   ChevronRight,
-  X
+  X,
+  Users as UsersIcon,
+  UserPlus,
+  User,
+  Mail,
+  Lock,
+  Trash2
 } from 'lucide-react';
+
+const ROLES = ['Admin', 'Recruiter', 'Hiring Manager'];
+
+const roleBadgeClass = (role) => {
+  if (role === 'Admin') return 'bg-brand-500/10 text-brand-600 dark:text-brand-400';
+  if (role === 'Recruiter') return 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400';
+  return 'bg-amber-500/10 text-amber-600 dark:text-amber-400';
+};
 
 const Settings = () => {
   const { user, changePassword } = useAuth();
@@ -57,7 +71,6 @@ const Settings = () => {
 
   // Form input states
   const [newDept, setNewDept] = useState('');
-  const [newLoc, setNewLoc] = useState('');
 
   // Server state metadata
   const [dbState, setDbState] = useState({ connected: false, type: 'In-Memory Fallback' });
@@ -65,6 +78,92 @@ const Settings = () => {
   const isHR = user && ['Admin', 'Recruiter'].includes(user.role);
   // Only Admins may view or manage the AI provider key / model.
   const isAdmin = user?.role === 'Admin';
+
+  // Staff User Management States (moved from Users.jsx)
+  const [users, setUsers] = useState([]);
+  const [usersLoading, setUsersLoading] = useState(true);
+  const [createForm, setCreateForm] = useState({ name: '', email: '', password: '', role: 'Recruiter' });
+  const [creating, setCreating] = useState(false);
+  const [busyId, setBusyId] = useState(null);
+
+  const fetchUsers = async () => {
+    try {
+      setUsersLoading(true);
+      const res = await api.get('/auth/users');
+      if (res.data.success) setUsers(res.data.data);
+    } catch (err) {
+      console.error('Error fetching users', err);
+      showStatus('error', err.response?.data?.message || 'Failed to load users.');
+    } finally {
+      setUsersLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isAdmin) {
+      fetchUsers();
+    }
+  }, [isAdmin]);
+
+  const handleCreateUser = async (e) => {
+    e.preventDefault();
+    if (!createForm.name || !createForm.email || !createForm.password) {
+      showStatus('error', 'Name, email and password are required.');
+      return;
+    }
+    if (createForm.password.length < 6) {
+      showStatus('error', 'Password must be at least 6 characters.');
+      return;
+    }
+    setCreating(true);
+    try {
+      const res = await api.post('/auth/users', createForm);
+      if (res.data.success) {
+        setCreateForm({ name: '', email: '', password: '', role: 'Recruiter' });
+        showStatus('success', `Account created for ${res.data.data.name}.`);
+        fetchUsers();
+      }
+    } catch (err) {
+      console.error(err);
+      showStatus('error', err.response?.data?.message || 'Failed to create user.');
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const handleRoleChange = async (id, role) => {
+    setBusyId(id);
+    try {
+      const res = await api.put(`/auth/users/${id}/role`, { role });
+      if (res.data.success) {
+        setUsers((prev) => prev.map((u) => (u._id === id ? { ...u, role } : u)));
+        showStatus('success', 'Role updated.');
+      }
+    } catch (err) {
+      console.error(err);
+      showStatus('error', err.response?.data?.message || 'Failed to update role.');
+      fetchUsers();
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleDeleteUser = async (u) => {
+    if (!window.confirm(`Delete ${u.name} (${u.email})? This cannot be undone.`)) return;
+    setBusyId(u._id);
+    try {
+      const res = await api.delete(`/auth/users/${u._id}`);
+      if (res.data.success) {
+        setUsers((prev) => prev.filter((x) => x._id !== u._id));
+        showStatus('success', `${u.name} deleted.`);
+      }
+    } catch (err) {
+      console.error(err);
+      showStatus('error', err.response?.data?.message || 'Failed to delete user.');
+    } finally {
+      setBusyId(null);
+    }
+  };
 
   useEffect(() => {
     const fetchSettings = async () => {
@@ -126,26 +225,6 @@ const Settings = () => {
     showStatus('success', `Removed "${removed}" department.`);
   };
 
-  const handleAddLoc = (e) => {
-    e.preventDefault();
-    if (!isHR) return;
-    const trimmed = newLoc.trim();
-    if (!trimmed) return;
-    if (locations.some(l => l.toLowerCase() === trimmed.toLowerCase())) {
-      showStatus('error', `Location "${trimmed}" already exists.`);
-      return;
-    }
-    setLocations([...locations, trimmed]);
-    setNewLoc('');
-    showStatus('success', `Added "${trimmed}" to office locations.`);
-  };
-
-  const handleRemoveLoc = (index) => {
-    if (!isHR) return;
-    const removed = locations[index];
-    setLocations(locations.filter((_, i) => i !== index));
-    showStatus('success', `Removed "${removed}" location.`);
-  };
 
   // "Save Settings" saves EVERYTHING in one go: general config, plus (for
   // Admins) the entered API key and the selected model.
@@ -389,10 +468,13 @@ const Settings = () => {
   }
 
   const tabs = [
-    { id: 'metadata', label: 'Company Metadata', icon: Building, desc: 'Departments and office locations' },
+    { id: 'metadata', label: 'Company Metadata', icon: Building, desc: 'Departments' },
     { id: 'ai', label: 'AI Algorithms', icon: Cpu, desc: 'Score thresholds and parsing filters' },
     { id: 'system', label: 'System Diagnostics', icon: Server, desc: 'Database connections and credentials' }
   ];
+  if (isAdmin) {
+    tabs.push({ id: 'accounts', label: 'User Management', icon: UsersIcon, desc: 'Create and manage recruiter accounts' });
+  }
 
   return (
     <div className="space-y-4 animate-in fade-in duration-300">
@@ -412,7 +494,7 @@ const Settings = () => {
           </p>
         </div>
 
-        {isHR && (
+        {isHR && activeTab !== 'accounts' && (
           <div className="flex items-center space-x-2 relative z-10">
             {/* <button
               onClick={handleResetDefaults}
@@ -537,68 +619,6 @@ const Settings = () => {
                       value={newDept}
                       onChange={(e) => setNewDept(e.target.value)}
                       placeholder="Add Department (e.g. AI Dev)"
-                      className="flex-grow h-9 px-3 border border-slate-200 dark:border-darkBorder rounded-lg bg-slate-50/50 dark:bg-slate-900 text-xs text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
-                    />
-                    <button
-                      type="submit"
-                      disabled={saving}
-                      className="flex items-center justify-center w-9 h-9 bg-brand-600 hover:bg-brand-700 text-white rounded-lg transition-all transform hover:scale-[1.03]"
-                    >
-                      <Plus size={16} />
-                    </button>
-                  </form>
-                )}
-              </div>
-
-              {/* Office Locations Panel */}
-              <div className="p-4 bg-white/80 dark:bg-darkCard backdrop-blur-md border border-slate-200/60 dark:border-darkBorder rounded-2xl shadow-premium dark:shadow-premium-dark flex flex-col justify-between min-h-[300px]">
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between border-b border-slate-100 dark:border-darkBorder/40 pb-2">
-                    <div>
-                      <h3 className="text-xs font-extrabold text-slate-800 dark:text-slate-200 flex items-center">
-                        <MapPin size={14} className="mr-2 text-brand-500" /> Hiring Locations
-                      </h3>
-                      <p className="text-[9.5px] text-slate-400">Custom office structures and remote options.</p>
-                    </div>
-                    <span className="text-[9.5px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 px-2.5 py-0.5 rounded-full border border-slate-200/20">
-                      {locations.length}
-                    </span>
-                  </div>
-
-                  {/* Locations tag list */}
-                  <div className="flex flex-wrap gap-1.5 max-h-48 overflow-y-auto pr-1">
-                    {locations.map((loc, idx) => (
-                      <span
-                        key={idx}
-                        className="inline-flex items-center px-2.5 py-1 bg-gradient-to-r from-brand-500/5 to-indigo-500/5 dark:from-brand-500/10 dark:to-indigo-500/10 border border-brand-500/15 dark:border-brand-500/20 text-slate-600 dark:text-slate-300 rounded-lg text-xs"
-                      >
-                        <span className="font-medium">{loc}</span>
-                        {isHR && (
-                          <button
-                            onClick={() => handleRemoveLoc(idx)}
-                            className="text-slate-400 hover:text-rose-500 font-bold ml-1.5 focus:outline-none"
-                            title="Remove Location"
-                          >
-                            &times;
-                          </button>
-                        )}
-                      </span>
-                    ))}
-                    {locations.length === 0 && (
-                      <span className="text-xs text-slate-400 italic">No locations configured.</span>
-                    )}
-                  </div>
-                </div>
-
-                {/* Add location input */}
-                {isHR && (
-                  <form onSubmit={handleAddLoc} className="flex items-center space-x-2 mt-4 pt-3 border-t border-slate-100 dark:border-darkBorder/40">
-                    <input
-                      type="text"
-                      disabled={saving}
-                      value={newLoc}
-                      onChange={(e) => setNewLoc(e.target.value)}
-                      placeholder="Add Location (e.g. Tokyo, JP)"
                       className="flex-grow h-9 px-3 border border-slate-200 dark:border-darkBorder rounded-lg bg-slate-50/50 dark:bg-slate-900 text-xs text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
                     />
                     <button
@@ -947,6 +967,148 @@ const Settings = () => {
             </div>
           )}
 
+          {activeTab === 'accounts' && isAdmin && (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 items-start animate-in fade-in duration-200">
+              {/* Create user */}
+              <div className="lg:col-span-1 p-4 bg-white dark:bg-darkCard border border-slate-200/60 dark:border-darkBorder rounded-2xl shadow-premium dark:shadow-premium-dark">
+                <h3 className="text-xs font-extrabold text-slate-800 dark:text-slate-200 flex items-center mb-3">
+                  <UserPlus size={14} className="mr-2 text-brand-500" /> Create Account
+                </h3>
+                <form onSubmit={handleCreateUser} className="space-y-2.5">
+                  <div className="relative">
+                    <User size={14} className="absolute left-3 top-3 text-slate-400" />
+                    <input
+                      name="name"
+                      value={createForm.name}
+                      onChange={(e) => setCreateForm((f) => ({ ...f, name: e.target.value }))}
+                      placeholder="Full name"
+                      className="w-full h-10 pl-9 pr-3 border border-slate-200 dark:border-darkBorder rounded-xl bg-slate-50/50 dark:bg-slate-900 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
+                      required
+                    />
+                  </div>
+                  <div className="relative">
+                    <Mail size={14} className="absolute left-3 top-3 text-slate-400" />
+                    <input
+                      type="email"
+                      name="email"
+                      value={createForm.email}
+                      onChange={(e) => setCreateForm((f) => ({ ...f, email: e.target.value }))}
+                      placeholder="email@company.com"
+                      className="w-full h-10 pl-9 pr-3 border border-slate-200 dark:border-darkBorder rounded-xl bg-slate-50/50 dark:bg-slate-900 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
+                      required
+                    />
+                  </div>
+                  <div className="relative">
+                    <Lock size={14} className="absolute left-3 top-3 text-slate-400" />
+                    <input
+                      type="password"
+                      name="password"
+                      value={createForm.password}
+                      onChange={(e) => setCreateForm((f) => ({ ...f, password: e.target.value }))}
+                      placeholder="Temp password (min 6 chars)"
+                      className="w-full h-10 pl-9 pr-3 border border-slate-200 dark:border-darkBorder rounded-xl bg-slate-50/50 dark:bg-slate-900 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
+                      required
+                    />
+                  </div>
+                  <select
+                    name="role"
+                    value={createForm.role}
+                    onChange={(e) => setCreateForm((f) => ({ ...f, role: e.target.value }))}
+                    className="w-full h-10 px-3 border border-slate-200 dark:border-darkBorder rounded-xl bg-white dark:bg-slate-900 text-xs text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
+                  >
+                    {ROLES.map((r) => (
+                      <option key={r} value={r}>{r}</option>
+                    ))}
+                  </select>
+                  <button
+                    type="submit"
+                    disabled={creating}
+                    className="flex items-center justify-center w-full space-x-1.5 h-10 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-xs font-semibold rounded-xl shadow transition"
+                  >
+                    {creating ? <Loader2 size={14} className="animate-spin" /> : <UserPlus size={14} />}
+                    <span>{creating ? 'Creating...' : 'Create Account'}</span>
+                  </button>
+                  <p className="text-[10px] text-slate-400">Share the temporary password with the user; they sign in with it.</p>
+                </form>
+              </div>
+
+              {/* Users list */}
+              <div className="lg:col-span-2 bg-white dark:bg-darkCard border border-slate-200/60 dark:border-darkBorder rounded-2xl shadow-premium dark:shadow-premium-dark overflow-hidden">
+                {usersLoading ? (
+                  <div className="p-10 flex items-center justify-center">
+                    <Loader2 size={24} className="animate-spin text-brand-500" />
+                  </div>
+                ) : users.length === 0 ? (
+                  <div className="p-10 text-center text-xs text-slate-400 flex flex-col items-center">
+                    <UsersIcon size={32} className="text-slate-300 dark:text-slate-700 mb-2" />
+                    No users found.
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead>
+                        <tr className="border-b border-slate-100 dark:border-darkBorder/60 bg-slate-50/50 dark:bg-slate-900/30 text-[10.5px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">
+                          <th className="py-2.5 px-4">User</th>
+                          <th className="py-2.5 px-4">Role</th>
+                          <th className="py-2.5 px-4 w-10"></th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 dark:divide-darkBorder/60">
+                        {users.map((u) => {
+                          const isSelf = u._id === user?._id;
+                          return (
+                            <tr key={u._id} className="hover:bg-slate-50/40 dark:hover:bg-slate-800/20 transition">
+                              <td className="py-2.5 px-4">
+                                <div className="flex items-center space-x-3">
+                                  <div className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center font-bold text-slate-600 dark:text-slate-400 uppercase">
+                                    {u.name?.slice(0, 2) || 'U'}
+                                  </div>
+                                  <div className="min-w-0">
+                                    <span className="font-bold text-slate-800 dark:text-slate-200 block truncate">
+                                      {u.name}{isSelf && <span className="text-[9px] font-semibold text-brand-500 ml-1.5">(you)</span>}
+                                    </span>
+                                    <span className="text-[10px] text-slate-400 truncate block">{u.email}</span>
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="py-2.5 px-4">
+                                {isSelf ? (
+                                  <span className={`inline-block px-2 py-0.5 rounded-full font-semibold text-[9.5px] uppercase ${roleBadgeClass(u.role)}`}>{u.role}</span>
+                                ) : (
+                                  <select
+                                    value={u.role}
+                                    disabled={busyId === u._id}
+                                    onChange={(e) => handleRoleChange(u._id, e.target.value)}
+                                    className="h-8 px-2 border border-slate-200 dark:border-darkBorder rounded-lg bg-white dark:bg-slate-900 text-[11px] text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
+                                  >
+                                    {ROLES.map((r) => (
+                                      <option key={r} value={r}>{r}</option>
+                                    ))}
+                                  </select>
+                                )}
+                              </td>
+                              <td className="py-2.5 px-4 text-right">
+                                {!isSelf && (
+                                  <button
+                                    onClick={() => handleDeleteUser(u)}
+                                    disabled={busyId === u._id}
+                                    className="p-1 text-slate-400 hover:text-rose-500 rounded transition disabled:opacity-40"
+                                    title="Delete staff account"
+                                  >
+                                    <Trash2 size={14} />
+                                  </button>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
       </div>

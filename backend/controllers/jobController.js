@@ -226,3 +226,21 @@ exports.archiveJob = async (req, res) => {
     return res.status(500).json({ success: false, message: 'Server error archiving job' });
   }
 };
+
+// @desc    Re-activate a job — reopen a Closed job, publish a Draft, or restore
+//          an Archived one (sets status back to Active).
+// @route   PUT /api/jobs/:id/activate
+// @access  Private (Admin, Recruiter)
+exports.activateJob = async (req, res) => {
+  try {
+    const existing = await JobRepo.findById(req.params.id);
+    if (!existing) {
+      return res.status(404).json({ success: false, message: 'Job not found' });
+    }
+    const job = await JobRepo.update(req.params.id, { status: 'Active' });
+    return res.json({ success: true, data: job });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ success: false, message: 'Server error activating job' });
+  }
+};

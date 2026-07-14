@@ -103,10 +103,10 @@ const Shortlist = () => {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl font-extrabold text-slate-800 dark:text-slate-100 flex items-center">
+          <h2 className="text-lg sm:text-xl font-extrabold text-slate-800 dark:text-slate-100 flex items-center">
             <Sparkles size={18} className="mr-2 text-brand-500" /> Recommended Candidates
           </h2>
-          <p className="text-xs text-slate-500">Your whole talent pool ranked by fit for this role — including strong candidates who applied elsewhere.</p>
+          <p className="text-[10px] sm:text-xs text-slate-500">Your whole talent pool ranked by fit for this role — including strong candidates who applied elsewhere.</p>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -122,7 +122,7 @@ const Shortlist = () => {
             <select
               value={jobId}
               onChange={(e) => setJobId(e.target.value)}
-              className="border-none bg-transparent text-xs font-bold text-slate-700 dark:text-slate-300 focus:outline-none max-w-[220px]"
+              className="border-none bg-transparent text-[10px] sm:text-xs font-bold text-slate-700 dark:text-slate-300 focus:outline-none max-w-[220px]"
             >
               {jobs.length === 0 ? <option value="">No Active Jobs</option> : jobs.map((j) => (
                 <option key={j._id} value={j._id}>{j.title}</option>
@@ -134,7 +134,7 @@ const Shortlist = () => {
 
       {/* Summary tiles */}
       {!loading && total > 0 && (
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-3 sm:grid-cols-3 gap-3">
           <StatTile icon={Users} label="Matches" value={total} accentClass="bg-brand-500/10 text-brand-600 dark:text-brand-400" />
           <StatTile icon={Award} label="Strong Fits" value={strong} accentClass="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" />
           <StatTile icon={Shuffle} label="From Other Roles" value={crossRole} accentClass="bg-amber-500/10 text-amber-600 dark:text-amber-400" />
@@ -158,8 +158,8 @@ const Shortlist = () => {
               <div key={g.band} className="space-y-2">
                 <div className="flex items-center gap-2 px-0.5">
                   <Icon size={14} className={meta.iconClass} />
-                  <h3 className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">{meta.label}</h3>
-                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500">{g.items.length}</span>
+                  <h3 className="text-[10px] sm:text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">{meta.label}</h3>
+                  <span className="text-[8px] sm:text-[10px] font-semibold px-1.5 sm:px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500">{g.items.length}</span>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
                   {g.items.map((c) => (
@@ -195,27 +195,28 @@ const RecCard = ({ c, isHR, busy, onStatus, onMove }) => {
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5 flex-wrap">
-          <Link to={`/candidates/${c._id}`} className="font-bold text-sm text-slate-800 dark:text-slate-100 hover:text-brand-500 hover:underline truncate">
+          <Link to={`/candidates/${c._id}`} className="font-bold text-xs sm:text-sm text-slate-800 dark:text-slate-100 hover:text-brand-500 hover:underline truncate">
             {c.name}
           </Link>
-          {c.seniorityLevel && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500">{c.seniorityLevel}</span>}
+          {c.seniorityLevel && <span className="text-[8px] sm:text-[9px] font-bold px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500">{c.seniorityLevel}</span>}
           {c.redFlags?.length > 0 && (
-            <span title={c.redFlags.map((f) => f.type).join(', ')} className="inline-flex items-center gap-0.5 text-[9px] font-bold px-1 py-0.5 rounded bg-rose-500/10 text-rose-600 border border-rose-500/20">
+            <span title={c.redFlags.map((f) => f.type).join(', ')} className="inline-flex items-center gap-0.5 text-[8px] sm:text-[9px] font-bold px-1 py-0.5 rounded bg-rose-500/10 text-rose-600 border border-rose-500/20">
               <AlertTriangle size={9} /> {c.redFlags.length}
             </span>
           )}
           {/* The cross-role signal: where they actually applied. */}
           {c.appliedHere ? (
-            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">Applied here</span>
+            <span className="text-[8px] sm:text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">Applied here</span>
           ) : (
-            <span title="Recommended from the talent pool" className="inline-flex items-center gap-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 border border-amber-500/20">
-              <ArrowRightLeft size={9} /> Applied for: {c.appliedJob?.title || '—'}
+            <span title={`Applied for: ${c.appliedJob?.title || '—'}`} className="inline-flex items-center gap-0.5 text-[8px] sm:text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 border border-amber-500/20 max-w-[150px] sm:max-w-[200px]">
+              <ArrowRightLeft size={9} className="shrink-0" />
+              <span className="truncate">Applied for: {c.appliedJob?.title || '—'}</span>
             </span>
           )}
-          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500">{c.status}</span>
+          <span className="text-[8px] sm:text-[9px] font-bold px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500">{c.status}</span>
         </div>
 
-        <p className="text-[10.5px] text-slate-500 dark:text-slate-400 mt-1 line-clamp-2">{m.reason || c.careerSummary || 'No summary available.'}</p>
+        <p className="text-[9.5px] sm:text-[10.5px] text-slate-500 dark:text-slate-400 mt-1 line-clamp-2">{m.reason || c.careerSummary || 'No summary available.'}</p>
 
         {/* Matched skills for THIS role; transferable ones (inferred from experience) marked with ~ */}
         {(m.matchedRequired || []).length > 0 && (
@@ -224,7 +225,7 @@ const RecCard = ({ c, isHR, busy, onStatus, onMove }) => {
               <span
                 key={i}
                 title={transferable.has(s) ? 'Inferred from experience' : 'Listed skill'}
-                className={`text-[9px] px-1.5 py-0.5 rounded border ${transferable.has(s)
+                className={`text-[8px] sm:text-[9px] px-1.5 py-0.5 rounded border ${transferable.has(s)
                   ? 'bg-amber-500/10 text-amber-600 border-amber-500/20'
                   : 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20'}`}
               >
@@ -235,35 +236,41 @@ const RecCard = ({ c, isHR, busy, onStatus, onMove }) => {
         )}
 
         {isHR && (
-          <div className="flex items-center gap-2 mt-2.5">
+          <div className="flex flex-wrap items-center gap-2 mt-2.5">
             {c.appliedHere ? (
               <>
                 <button
                   onClick={() => onStatus(c, 'Shortlisted')}
                   disabled={busy || c.status === 'Shortlisted'}
-                  className="flex items-center gap-1 text-[10px] font-semibold px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 hover:bg-emerald-500/20 disabled:opacity-40 transition"
+                  className="flex items-center justify-center gap-1 text-[10px] font-semibold p-2 sm:px-2.5 sm:py-1 rounded-lg bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 hover:bg-emerald-500/20 disabled:opacity-40 transition"
+                  title="Shortlist candidate"
                 >
-                  <ThumbsUp size={11} /> Shortlist
+                  <ThumbsUp size={11} className="shrink-0" />
+                  <span className="hidden sm:inline">Shortlist</span>
                 </button>
                 <button
                   onClick={() => onStatus(c, 'Rejected')}
                   disabled={busy || c.status === 'Rejected'}
-                  className="flex items-center gap-1 text-[10px] font-semibold px-2.5 py-1 rounded-lg bg-rose-500/10 text-rose-600 border border-rose-500/20 hover:bg-rose-500/20 disabled:opacity-40 transition"
+                  className="flex items-center justify-center gap-1 text-[10px] font-semibold p-2 sm:px-2.5 sm:py-1 rounded-lg bg-rose-500/10 text-rose-600 border border-rose-500/20 hover:bg-rose-500/20 disabled:opacity-40 transition"
+                  title="Reject candidate"
                 >
-                  <ThumbsDown size={11} /> Reject
+                  <ThumbsDown size={11} className="shrink-0" />
+                  <span className="hidden sm:inline">Reject</span>
                 </button>
               </>
             ) : (
               <button
                 onClick={() => onMove(c)}
                 disabled={busy}
-                className="flex items-center gap-1 text-[10px] font-semibold px-2.5 py-1 rounded-lg bg-brand-500/10 text-brand-600 border border-brand-500/20 hover:bg-brand-500/20 disabled:opacity-40 transition"
+                className="flex items-center justify-center gap-1 text-[10px] font-semibold p-2 sm:px-2.5 sm:py-1 rounded-lg bg-brand-500/10 text-brand-600 border border-brand-500/20 hover:bg-brand-500/20 disabled:opacity-40 transition"
+                title="Move candidate to this role"
               >
-                {busy ? <Loader2 size={11} className="animate-spin" /> : <ArrowRightLeft size={11} />} Move to this role
+                {busy ? <Loader2 size={11} className="animate-spin shrink-0" /> : <ArrowRightLeft size={11} className="shrink-0" />}
+                <span className="hidden sm:inline">Move to this role</span>
               </button>
             )}
-            <Link to={`/candidates/${c._id}`} className="flex items-center gap-0.5 text-[10px] font-semibold text-brand-500 hover:underline ml-auto">
-              Review <ChevronRight size={11} />
+            <Link to={`/candidates/${c._id}`} className="flex items-center gap-0.5 text-[10px] font-semibold text-brand-500 hover:underline ml-auto" title="Review candidate details">
+              <span className="hidden sm:inline">Review</span> <ChevronRight size={11} />
             </Link>
           </div>
         )}
@@ -273,12 +280,12 @@ const RecCard = ({ c, isHR, busy, onStatus, onMove }) => {
 };
 
 const StatTile = ({ icon: Icon, label, value, accentClass = 'bg-brand-500/10 text-brand-600 dark:text-brand-400' }) => (
-  <div className="p-3.5 bg-white dark:bg-darkCard border border-slate-200/60 dark:border-darkBorder rounded-2xl shadow-premium dark:shadow-premium-dark">
-    <div className="flex items-center justify-between">
-      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{label}</span>
-      <div className={`p-1.5 rounded-lg ${accentClass}`}><Icon size={14} /></div>
+  <div className="p-2.5 sm:p-3.5 bg-white dark:bg-darkCard border border-slate-200/60 dark:border-darkBorder rounded-2xl shadow-premium dark:shadow-premium-dark">
+    <div className="flex items-center justify-between gap-1.5">
+      <span className="text-[8px] sm:text-[10px] font-bold text-slate-400 uppercase tracking-wider truncate">{label}</span>
+      <div className={`p-1 sm:p-1.5 rounded-lg ${accentClass} shrink-0`}><Icon className="w-3 h-3 sm:w-3.5 sm:h-3.5" /></div>
     </div>
-    <div className="text-2xl font-black text-slate-800 dark:text-slate-100 mt-1">{value}</div>
+    <div className="text-lg sm:text-2xl font-black text-slate-800 dark:text-slate-100 mt-0.5 sm:mt-1">{value}</div>
   </div>
 );
 

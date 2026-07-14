@@ -31,6 +31,7 @@ import {
   Settings,
   UploadCloud,
   UserCog,
+  UserCheck,
   Sparkles,
   ScrollText
 } from 'lucide-react';
@@ -96,8 +97,8 @@ const DashboardLayout = () => {
     { name: 'Recommendations', path: '/shortlist', icon: Sparkles, roles: ['Admin', 'Recruiter', 'Hiring Manager'] },
     { name: 'Hiring Pipeline', path: '/pipeline', icon: Columns, roles: ['Admin', 'Recruiter', 'Hiring Manager'] },
     { name: 'Compare Talents', path: '/compare', icon: ArrowLeftRight, roles: ['Admin', 'Recruiter', 'Hiring Manager'] },
+    { name: 'Registered Users', path: '/applicants', icon: UserCheck, roles: ['Admin', 'Recruiter'] },
     { name: 'Notifications', path: '/notifications', icon: Bell, roles: ['Admin'] },
-    { name: 'User Management', path: '/users', icon: UserCog, roles: ['Admin'] },
     { name: 'Audit Log', path: '/audit', icon: ScrollText, roles: ['Admin'] },
     { name: 'Settings', path: '/settings', icon: Settings, roles: ['Admin', 'Recruiter', 'Hiring Manager'] },
   ];
@@ -243,7 +244,7 @@ const DashboardLayout = () => {
               {notifOpen && (
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setNotifOpen(false)} />
-                  <div className="absolute right-0 mt-2.5 w-80 max-w-[90vw] bg-white dark:bg-darkCard border border-slate-200 dark:border-darkBorder rounded-xl shadow-lg z-50 overflow-hidden">
+                  <div className="absolute right-[-20px] sm:right-0 mt-2.5 w-80 max-w-[88vw] bg-white dark:bg-darkCard border border-slate-200 dark:border-darkBorder rounded-xl shadow-lg z-50 overflow-hidden">
                     <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-100 dark:border-darkBorder/60">
                       <span className="text-xs font-bold text-slate-800 dark:text-slate-200">Notifications</span>
                       {unread > 0 && (
@@ -262,8 +263,8 @@ const DashboardLayout = () => {
                           >
                             <div className="flex items-start gap-2">
                               {!n.read
-                                ? <span className="mt-1 w-2 h-2 rounded-full bg-brand-500 flex-shrink-0" />
-                                : <span className="mt-1 w-2 h-2 flex-shrink-0" />}
+                                ? <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-brand-500 flex-shrink-0 animate-pulse" />
+                                : <span className="mt-1.5 w-1.5 h-1.5 flex-shrink-0" />}
                               <div className="min-w-0 flex-1">
                                 {n.title && <p className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate">{n.title}</p>}
                                 <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-snug">{n.message}</p>

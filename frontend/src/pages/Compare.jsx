@@ -234,7 +234,7 @@ const Compare = () => {
             {/* Header row with candidate names */}
             <thead>
               <tr className="border-b border-slate-100 dark:border-darkBorder/60 bg-slate-50/50 dark:bg-slate-900/30">
-                <th className="py-3 px-4 font-bold text-slate-400 uppercase tracking-widest text-[10px] w-64 border-r border-slate-200/40 dark:border-darkBorder/20">
+                <th className="sticky left-0 bg-slate-100 dark:bg-[#1a1a1a] z-10 py-3 px-4 font-bold text-slate-400 uppercase tracking-widest text-[10px] w-48 sm:w-64 border-r border-slate-200/40 dark:border-darkBorder/20 shadow-[2px_0_5px_rgba(0,0,0,0.04)]">
                   Assessment Field
                 </th>
                 {candidates.map((cand) => (
@@ -256,7 +256,7 @@ const Compare = () => {
               
               {/* Overall AI Score */}
               <tr className="hover:bg-slate-50/30 dark:hover:bg-slate-800/10 transition">
-                <td className="py-2.5 px-4 font-bold text-slate-700 dark:text-slate-300 border-r border-slate-200/40 dark:border-darkBorder/20 bg-slate-50/20 dark:bg-slate-900/10">
+                <td className="sticky left-0 bg-slate-50 dark:bg-[#1a1a1a] z-10 py-2.5 px-4 font-bold text-slate-700 dark:text-slate-300 border-r border-slate-200/40 dark:border-darkBorder/20 shadow-[2px_0_5px_rgba(0,0,0,0.04)]">
                   Overall Score
                 </td>
                 {candidates.map((cand) => (
@@ -274,7 +274,7 @@ const Compare = () => {
 
               {/* Recommendation */}
               <tr className="hover:bg-slate-50/30 dark:hover:bg-slate-800/10 transition">
-                <td className="py-2.5 px-4 font-bold text-slate-700 dark:text-slate-300 border-r border-slate-200/40 dark:border-darkBorder/20 bg-slate-50/20 dark:bg-slate-900/10">
+                <td className="sticky left-0 bg-slate-50 dark:bg-[#1a1a1a] z-10 py-2.5 px-4 font-bold text-slate-700 dark:text-slate-300 border-r border-slate-200/40 dark:border-darkBorder/20 shadow-[2px_0_5px_rgba(0,0,0,0.04)]">
                    Recommendation
                 </td>
                 {candidates.map((cand) => (
@@ -286,7 +286,7 @@ const Compare = () => {
 
               {/* Technical Capability */}
               <tr className="hover:bg-slate-50/30 dark:hover:bg-slate-800/10 transition">
-                <td className="py-2.5 px-4 font-bold text-slate-700 dark:text-slate-300 border-r border-slate-200/40 dark:border-darkBorder/20 bg-slate-50/20 dark:bg-slate-900/10">
+                <td className="sticky left-0 bg-slate-50 dark:bg-[#1a1a1a] z-10 py-2.5 px-4 font-bold text-slate-700 dark:text-slate-300 border-r border-slate-200/40 dark:border-darkBorder/20 shadow-[2px_0_5px_rgba(0,0,0,0.04)]">
                   Technical Score
                 </td>
                 {candidates.map((cand) => (
@@ -298,7 +298,7 @@ const Compare = () => {
 
               {/* Experience Alignment */}
               <tr className="hover:bg-slate-50/30 dark:hover:bg-slate-800/10 transition">
-                <td className="py-2.5 px-4 font-bold text-slate-700 dark:text-slate-300 border-r border-slate-200/40 dark:border-darkBorder/20 bg-slate-50/20 dark:bg-slate-900/10">
+                <td className="sticky left-0 bg-slate-50 dark:bg-[#1a1a1a] z-10 py-2.5 px-4 font-bold text-slate-700 dark:text-slate-300 border-r border-slate-200/40 dark:border-darkBorder/20 shadow-[2px_0_5px_rgba(0,0,0,0.04)]">
                   Experience Score
                 </td>
                 {candidates.map((cand) => (
@@ -310,7 +310,7 @@ const Compare = () => {
 
               {/* Culture Fit Alignment */}
               <tr className="hover:bg-slate-50/30 dark:hover:bg-slate-800/10 transition">
-                <td className="py-2.5 px-4 font-bold text-slate-700 dark:text-slate-300 border-r border-slate-200/40 dark:border-darkBorder/20 bg-slate-50/20 dark:bg-slate-900/10">
+                <td className="sticky left-0 bg-slate-50 dark:bg-[#1a1a1a] z-10 py-2.5 px-4 font-bold text-slate-700 dark:text-slate-300 border-r border-slate-200/40 dark:border-darkBorder/20 shadow-[2px_0_5px_rgba(0,0,0,0.04)]">
                   Culture Fit Score
                 </td>
                 {candidates.map((cand) => (
@@ -322,7 +322,7 @@ const Compare = () => {
 
               {/* Matched Skills */}
               <tr className="hover:bg-slate-50/30 dark:hover:bg-slate-800/10 transition">
-                <td className="py-2.5 px-4 font-bold text-slate-700 dark:text-slate-300 border-r border-slate-200/40 dark:border-darkBorder/20 bg-slate-50/20 dark:bg-slate-900/10">
+                <td className="sticky left-0 bg-slate-50 dark:bg-[#1a1a1a] z-10 py-2.5 px-4 font-bold text-slate-700 dark:text-slate-300 border-r border-slate-200/40 dark:border-darkBorder/20 shadow-[2px_0_5px_rgba(0,0,0,0.04)]">
                   Matching Skills
                 </td>
                 {candidates.map((cand) => (
@@ -343,7 +343,7 @@ const Compare = () => {
 
               {/* Missing Skills */}
               <tr className="hover:bg-slate-50/30 dark:hover:bg-slate-800/10 transition">
-                <td className="py-2.5 px-4 font-bold text-slate-700 dark:text-slate-300 border-r border-slate-200/40 dark:border-darkBorder/20 bg-slate-50/20 dark:bg-slate-900/10">
+                <td className="sticky left-0 bg-slate-50 dark:bg-[#1a1a1a] z-10 py-2.5 px-4 font-bold text-slate-700 dark:text-slate-300 border-r border-slate-200/40 dark:border-darkBorder/20 shadow-[2px_0_5px_rgba(0,0,0,0.04)]">
                   Missing Skills
                 </td>
                 {candidates.map((cand) => (
@@ -364,7 +364,7 @@ const Compare = () => {
 
               {/* Strengths */}
               <tr className="hover:bg-slate-50/30 dark:hover:bg-slate-800/10 transition">
-                <td className="py-2.5 px-4 font-bold text-slate-700 dark:text-slate-300 border-r border-slate-200/40 dark:border-darkBorder/20 bg-slate-50/20 dark:bg-slate-900/10">
+                <td className="sticky left-0 bg-slate-50 dark:bg-[#1a1a1a] z-10 py-2.5 px-4 font-bold text-slate-700 dark:text-slate-300 border-r border-slate-200/40 dark:border-darkBorder/20 shadow-[2px_0_5px_rgba(0,0,0,0.04)]">
                   Strengths
                 </td>
                 {candidates.map((cand) => (
@@ -380,7 +380,7 @@ const Compare = () => {
 
               {/* Weaknesses */}
               <tr className="hover:bg-slate-50/30 dark:hover:bg-slate-800/10 transition">
-                <td className="py-2.5 px-4 font-bold text-slate-700 dark:text-slate-300 border-r border-slate-200/40 dark:border-darkBorder/20 bg-slate-50/20 dark:bg-slate-900/10">
+                <td className="sticky left-0 bg-slate-50 dark:bg-[#1a1a1a] z-10 py-2.5 px-4 font-bold text-slate-700 dark:text-slate-300 border-r border-slate-200/40 dark:border-darkBorder/20 shadow-[2px_0_5px_rgba(0,0,0,0.04)]">
                   Weaknesses
                 </td>
                 {candidates.map((cand) => (
@@ -396,7 +396,7 @@ const Compare = () => {
 
               {/* Work tenure summary */}
               <tr className="hover:bg-slate-50/30 dark:hover:bg-slate-800/10 transition">
-                <td className="py-2.5 px-4 font-bold text-slate-700 dark:text-slate-300 border-r border-slate-200/40 dark:border-darkBorder/20 bg-slate-50/20 dark:bg-slate-900/10">
+                <td className="sticky left-0 bg-slate-50 dark:bg-[#1a1a1a] z-10 py-2.5 px-4 font-bold text-slate-700 dark:text-slate-300 border-r border-slate-200/40 dark:border-darkBorder/20 shadow-[2px_0_5px_rgba(0,0,0,0.04)]">
                   Last Employment
                 </td>
                 {candidates.map((cand) => {
@@ -418,7 +418,7 @@ const Compare = () => {
 
               {/* Academic Level */}
               <tr className="hover:bg-slate-50/30 dark:hover:bg-slate-800/10 transition">
-                <td className="py-2.5 px-4 font-bold text-slate-700 dark:text-slate-300 border-r border-slate-200/40 dark:border-darkBorder/20 bg-slate-50/20 dark:bg-slate-900/10">
+                <td className="sticky left-0 bg-slate-50 dark:bg-[#1a1a1a] z-10 py-2.5 px-4 font-bold text-slate-700 dark:text-slate-300 border-r border-slate-200/40 dark:border-darkBorder/20 shadow-[2px_0_5px_rgba(0,0,0,0.04)]">
                   Academic Credentials
                 </td>
                 {candidates.map((cand) => {

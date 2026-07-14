@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const {
   uploadResume,
+  createManualCandidate,
   getCandidates,
   getCandidateById,
   updateCandidateStatus,
@@ -32,6 +33,9 @@ router.get('/recommendations', protect, getRecommendations);
 
 // Trash (soft-deleted candidates). Declared before '/:id'.
 router.get('/trash', protect, authorize('Admin', 'Recruiter'), getTrash);
+
+// Manually add a candidate (no résumé) — declared before '/:id'.
+router.post('/manual', protect, authorize('Admin', 'Recruiter'), createManualCandidate);
 
 // Upload resume & retrieve candidates
 router.route('/')

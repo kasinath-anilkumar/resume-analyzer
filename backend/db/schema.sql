@@ -143,6 +143,8 @@ alter table candidates add column if not exists salary_expectation text;
 -- exclude these; a periodic sweep purges rows trashed longer than the window.
 alter table candidates add column if not exists deleted_at timestamptz;
 create index if not exists candidates_deleted_at_idx on candidates(deleted_at);
+-- Manually-added candidates have no résumé on file, so the URL is optional.
+alter table candidates alter column resume_url drop not null;
 
 -- ---------------------------------------------------------------------------
 --  notifications

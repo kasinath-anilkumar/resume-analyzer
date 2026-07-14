@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import api, { API_ORIGIN } from '../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -36,7 +36,8 @@ import {
   Gauge,
   ClipboardList,
   MapPin,
-  Wallet
+  Wallet,
+  MoreVertical
 } from 'lucide-react';
 
 // Dynamic score coloring: green (strong) / amber (moderate) / red (weak).
@@ -79,6 +80,22 @@ const CandidateDetails = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [deleting, setDeleting] = useState(false);
+  const [deleteMenuOpen, setDeleteMenuOpen] = useState(false);
+  const deleteMenuRef = useRef(null);
+
+  useEffect(() => {
+    const handleOutsideClick = (e) => {
+      if (deleteMenuRef.current && !deleteMenuRef.current.contains(e.target)) {
+        setDeleteMenuOpen(false);
+      }
+    };
+    if (deleteMenuOpen) {
+      document.addEventListener('mousedown', handleOutsideClick);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+    };
+  }, [deleteMenuOpen]);
 
   const canManage = ['Admin', 'Recruiter'].includes(user?.role);
   const canDelete = canManage;
@@ -337,28 +354,27 @@ const CandidateDetails = () => {
 
   return (
     <div className="space-y-3 animate-in fade-in duration-300">
-      
+
       {/* Back & Status Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2.5 border-b border-slate-200 dark:border-darkBorder">
-        <div className="flex items-center space-x-3.5">
+      <div className="flex flex-col md:flex-row md:items-start lg:items-center justify-between gap-4 pb-2.5 border-b border-slate-200 dark:border-darkBorder">
+        <div className="flex items-start space-x-3.5 min-w-0 w-full md:w-auto">
           <Link
             to="/candidates"
-            className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 border border-slate-200 dark:border-darkBorder rounded-xl hover:bg-slate-50 dark:hover:bg-slate-900 transition"
+            className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 border border-slate-200 dark:border-darkBorder rounded-xl hover:bg-slate-50 dark:hover:bg-slate-900 transition flex-shrink-0"
           >
             <ChevronLeft size={16} />
           </Link>
-          <div>
-            <div className="flex items-center space-x-2">
-              <h2 className="text-xl font-extrabold text-slate-800 dark:text-slate-100">{candidate.name}</h2>
-              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                candidate.aiAnalysis?.overallScore >= 80 ? 'bg-emerald-500/10 text-emerald-600' :
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-lg sm:text-xl font-extrabold text-slate-800 dark:text-slate-100 truncate">{candidate.name}</h2>
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${candidate.aiAnalysis?.overallScore >= 80 ? 'bg-emerald-500/10 text-emerald-600' :
                 candidate.aiAnalysis?.overallScore >= 60 ? 'bg-amber-500/10 text-amber-600' :
-                'bg-rose-500/10 text-rose-600'
-              }`}>
+                  'bg-rose-500/10 text-rose-600'
+                }`}>
                 Job Match: {candidate.aiAnalysis?.overallScore}%
               </span>
             </div>
-            <p className="text-xs text-slate-500 flex items-center gap-2 flex-wrap">
+            <p className="text-xs text-slate-500 flex items-center gap-2 flex-wrap mt-0.5">
               <span>Candidate for <strong className="text-slate-700 dark:text-slate-300">{candidate.jobId?.title}</strong> ({candidate.jobId?.department})</span>
               {candidate.source === 'Application' && (
                 <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 uppercase tracking-wide">
@@ -375,23 +391,23 @@ const CandidateDetails = () => {
         </div>
 
         {/* Change Stage dropdown */}
-        <div className="flex items-center space-x-3">
+        <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
           {candidate.resumeUrl && (
             <a
               href={/^https?:\/\//.test(candidate.resumeUrl) ? candidate.resumeUrl : `${API_ORIGIN}${candidate.resumeUrl}`}
               target="_blank"
               rel="noreferrer"
-              className="flex items-center space-x-1.5 px-4 py-2 border border-slate-200 dark:border-darkBorder hover:bg-slate-50 dark:hover:bg-slate-800/50 text-slate-600 dark:text-slate-300 rounded-xl text-xs font-semibold transition"
+              className="flex items-center justify-center space-x-1.5 px-3 py-2 border border-slate-200 dark:border-darkBorder hover:bg-slate-50 dark:hover:bg-slate-800/50 text-slate-600 dark:text-slate-300 rounded-xl text-xs font-semibold transition flex-1 sm:flex-initial text-center"
             >
               <FileText size={14} />
               <span>Download CV</span>
             </a>
           )}
-          
+
           <select
             value={candidate.status}
             onChange={(e) => handleStatusChange(e.target.value)}
-            className="h-10 px-3 border border-slate-200 dark:border-darkBorder rounded-xl bg-white dark:bg-slate-900 text-xs text-slate-700 dark:text-slate-300 focus:outline-none"
+            className="h-10 px-3 border border-slate-200 dark:border-darkBorder rounded-xl bg-white dark:bg-slate-900 text-xs text-slate-700 dark:text-slate-300 focus:outline-none flex-1 sm:flex-initial min-w-[120px]"
           >
             <option value="Applied">Applied</option>
             <option value="Screening">Screening</option>
@@ -405,26 +421,44 @@ const CandidateDetails = () => {
           </select>
 
           {canDelete && (
-            <button
-              onClick={handleDeleteCandidate}
-              disabled={deleting}
-              title="Move candidate to Trash (recoverable for 30 days)"
-              className="flex items-center space-x-1.5 px-4 py-2 border border-rose-200 dark:border-rose-900/40 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded-xl text-xs font-semibold transition disabled:opacity-50"
-            >
-              {deleting ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
-              <span>{deleting ? 'Deleting...' : 'Delete'}</span>
-            </button>
-          )}
-          {canDelete && (
-            <button
-              onClick={handleDeletePerson}
-              disabled={deleting}
-              title="GDPR erase: delete this person's account and ALL their applications permanently"
-              className="flex items-center space-x-1.5 px-4 py-2 border border-rose-300 dark:border-rose-800 bg-rose-600 text-white hover:bg-rose-700 rounded-xl text-xs font-semibold transition disabled:opacity-50"
-            >
-              <AlertTriangle size={14} />
-              <span>Erase Person</span>
-            </button>
+            <div className="relative inline-block text-left" ref={deleteMenuRef}>
+              <button
+                type="button"
+                onClick={() => setDeleteMenuOpen(!deleteMenuOpen)}
+                disabled={deleting}
+                className="flex items-center justify-center h-10 w-10 border border-slate-200 dark:border-darkBorder hover:bg-slate-50 dark:hover:bg-slate-800/50 text-slate-500 hover:text-rose-600 rounded-xl transition"
+                title="More delete options"
+              >
+                {deleting ? <Loader2 size={14} className="animate-spin text-rose-500" /> : <MoreVertical size={16} />}
+              </button>
+              {deleteMenuOpen && (
+                <div className="absolute right-0 mt-2 w-56 origin-top-right rounded-xl bg-white dark:bg-darkCard border border-slate-200 dark:border-darkBorder shadow-lg z-50 py-1.5">
+                  <button
+                    type="button"
+                    onClick={() => { setDeleteMenuOpen(false); handleDeleteCandidate(); }}
+                    className="w-full text-left px-4 py-2.5 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition flex items-start gap-2.5"
+                  >
+                    <Trash2 size={13} className="text-slate-400 mt-0.5 shrink-0" />
+                    <div>
+                      <span className="font-bold block">Move to Trash</span>
+                      <span className="text-[10px] text-slate-400 block mt-0.5">Recoverable within 30 days</span>
+                    </div>
+                  </button>
+                  <div className="border-t border-slate-100 dark:border-darkBorder/60 my-1" />
+                  <button
+                    type="button"
+                    onClick={() => { setDeleteMenuOpen(false); handleDeletePerson(); }}
+                    className="w-full text-left px-4 py-2.5 text-xs text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-500/10 transition flex items-start gap-2.5"
+                  >
+                    <AlertTriangle size={13} className="text-rose-500 mt-0.5 shrink-0" />
+                    <div>
+                      <span className="font-bold block">Permanent Delete</span>
+                      <span className="text-[10px] text-rose-400 block mt-0.5">Permanent account & CV erasure</span>
+                    </div>
+                  </button>
+                </div>
+              )}
+            </div>
           )}
         </div>
       </div>
@@ -445,11 +479,10 @@ const CandidateDetails = () => {
 
       {/* Action feedback */}
       {actionMsg.text && (
-        <div className={`p-3 text-xs rounded-xl flex items-center border ${
-          actionMsg.type === 'success'
-            ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-400'
-            : 'bg-rose-500/10 border-rose-500/20 text-rose-600 dark:text-rose-400'
-        }`}>
+        <div className={`p-3 text-xs rounded-xl flex items-center border ${actionMsg.type === 'success'
+          ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-400'
+          : 'bg-rose-500/10 border-rose-500/20 text-rose-600 dark:text-rose-400'
+          }`}>
           {actionMsg.type === 'success' ? <CheckCircle size={14} className="mr-2" /> : <AlertCircle size={14} className="mr-2" />}
           <span>{actionMsg.text}</span>
         </div>
@@ -516,15 +549,17 @@ const CandidateDetails = () => {
 
         {canManage && (
           <>
-            <button
-              onClick={handleReanalyze}
-              disabled={reanalyzing}
-              title="Re-download the resume and re-score it against the current job"
-              className="flex items-center space-x-1.5 px-3 py-2 border border-slate-200 dark:border-darkBorder hover:bg-slate-50 dark:hover:bg-slate-800/50 text-slate-600 dark:text-slate-300 rounded-xl text-xs font-semibold transition disabled:opacity-50"
-            >
-              {reanalyzing ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-              <span>{reanalyzing ? 'Re-analyzing…' : 'Re-run AI Analysis'}</span>
-            </button>
+            {candidate.resumeUrl && (
+              <button
+                onClick={handleReanalyze}
+                disabled={reanalyzing}
+                title="Re-download the resume and re-score it against the current job"
+                className="flex items-center space-x-1.5 px-3 py-2 border border-slate-200 dark:border-darkBorder hover:bg-slate-50 dark:hover:bg-slate-800/50 text-slate-600 dark:text-slate-300 rounded-xl text-xs font-semibold transition disabled:opacity-50"
+              >
+                {reanalyzing ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+                <span>{reanalyzing ? 'Re-analyzing…' : 'Re-run AI Analysis'}</span>
+              </button>
+            )}
 
             <div className="flex items-center gap-1.5 px-2 py-1 border border-slate-200 dark:border-darkBorder rounded-xl">
               <ArrowRightLeft size={13} className="text-slate-400" />
@@ -547,7 +582,7 @@ const CandidateDetails = () => {
 
       {/* Grid Dashboard */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-        
+
         {/* Left column: AI scores & summary */}
         <div className="lg:col-span-1 space-y-3">
           {/* Summary & recommendation card */}
@@ -555,7 +590,7 @@ const CandidateDetails = () => {
             <h3 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">
               Resume Match Synthesis
             </h3>
-            
+
             <div className="flex items-center space-x-4">
               <div className={`w-16 h-16 rounded-2xl flex flex-col items-center justify-center border ${scoreBox(aiAnalysis?.overallScore || 0)}`}>
                 <span className={`text-2xl font-black ${scoreText(aiAnalysis?.overallScore || 0)}`}>
@@ -565,10 +600,9 @@ const CandidateDetails = () => {
               </div>
               <div className="flex-1">
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Analyzer Recommendation</span>
-                <span className={`text-sm font-bold block mt-0.5 ${
-                  aiAnalysis?.recommendation?.includes('Hire') ? 'text-emerald-500' :
+                <span className={`text-sm font-bold block mt-0.5 ${aiAnalysis?.recommendation?.includes('Hire') ? 'text-emerald-500' :
                   aiAnalysis?.recommendation?.includes('Interview') ? 'text-brand-500' : 'text-red-500'
-                }`}>
+                  }`}>
                   {aiAnalysis?.recommendation || 'Proceed to Screening'}
                 </span>
               </div>
@@ -633,7 +667,7 @@ const CandidateDetails = () => {
             <h3 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">
               Core Score Split
             </h3>
-            
+
             <div className="space-y-3.5">
               {scoreCategories.map((cat, idx) => (
                 <div key={idx} className="space-y-1">
@@ -651,6 +685,70 @@ const CandidateDetails = () => {
                 </div>
               ))}
             </div>
+          </div>
+
+          {/* Recruiter Evaluation Notes Section */}
+          <div className="p-4 bg-white dark:bg-darkCard border border-slate-200/60 dark:border-darkBorder rounded-xl shadow-premium dark:shadow-premium-dark space-y-3">
+            <h3 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">
+              Recruiter Evaluation History
+            </h3>
+
+            {/* Notes history list */}
+            <div className="space-y-3.5 max-h-60 overflow-y-auto pr-1">
+              {candidate.notes?.map((n) => (
+                <div key={n._id} className="p-3 bg-slate-50 dark:bg-slate-900/40 border border-slate-200/50 dark:border-darkBorder/40 rounded-xl flex justify-between items-start">
+                  <div className="space-y-1">
+                    <div className="flex items-center space-x-2 text-[10.5px]">
+                      <span className="font-bold text-slate-700 dark:text-slate-300">{n.author?.name || 'Recruiter'}</span>
+                      <span className="text-slate-400">({n.author?.role})</span>
+                      <span className="text-slate-300 dark:text-slate-700">•</span>
+                      <span className="text-slate-400">
+                        {new Date(n.createdAt).toLocaleDateString('en-US', {
+                          month: 'short',
+                          day: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-600 dark:text-slate-400 leading-normal pr-4">{n.note}</p>
+                  </div>
+
+                  {/* Delete note (Only auth-user can do) */}
+                  {(n.author?._id === user?._id || user?.role === 'Admin') && (
+                    <button
+                      onClick={() => handleDeleteNote(n._id)}
+                      className="p-1 text-slate-400 hover:text-rose-500 rounded transition flex-shrink-0"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  )}
+                </div>
+              ))}
+              {(!candidate.notes || candidate.notes.length === 0) && (
+                <div className="text-center py-6 text-slate-400 italic text-xs">
+                  No evaluations logged yet.
+                </div>
+              )}
+            </div>
+
+            {/* Note submission input */}
+            <form onSubmit={handleAddNote} className="flex gap-2 pt-2 border-t border-slate-100 dark:border-darkBorder">
+              <input
+                type="text"
+                value={newNote}
+                onChange={(e) => setNewNote(e.target.value)}
+                placeholder="Log a recruiter interview note or screening evaluation..."
+                className="flex-1 h-10 px-3 border border-slate-200 dark:border-darkBorder rounded-xl bg-slate-50/50 dark:bg-slate-900 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
+              />
+              <button
+                type="submit"
+                disabled={addingNote || !newNote.trim()}
+                className="px-4.5 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white rounded-xl flex items-center justify-center transition shadow-sm"
+              >
+                {addingNote ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+              </button>
+            </form>
           </div>
         </div>
 
@@ -755,19 +853,19 @@ const CandidateDetails = () => {
 
           {/* Profile CV Details (Work History, Projects, Academics) */}
           <div className="p-4 bg-white dark:bg-darkCard border border-slate-200/60 dark:border-darkBorder rounded-xl shadow-premium dark:shadow-premium-dark space-y-4">
-            
+
             {/* Work History */}
             <div className="space-y-4">
               <h3 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest flex items-center">
                 <Building size={14} className="mr-2" /> Professional Experience
               </h3>
-              
+
               <div className="relative border-l border-slate-100 dark:border-slate-800 pl-4 ml-2.5 space-y-5">
                 {candidate.experience?.map((exp, idx) => (
                   <div key={idx} className="relative text-xs">
                     {/* Circle Bullet */}
                     <span className="absolute -left-[21.5px] top-0.5 w-3 h-3 rounded-full bg-slate-200 dark:bg-slate-800 border border-white dark:border-darkCard" />
-                    
+
                     <div className="flex justify-between items-start">
                       <div>
                         <h4 className="font-bold text-slate-800 dark:text-slate-200">{exp.title}</h4>
@@ -813,7 +911,7 @@ const CandidateDetails = () => {
               <h3 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest flex items-center">
                 <GraduationCap size={14} className="mr-2" /> Academic Pedigree
               </h3>
-              
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
                 {candidate.education?.map((edu, idx) => (
                   <div key={idx} className="flex space-x-3">
@@ -853,7 +951,7 @@ const CandidateDetails = () => {
 
             {/* Schedule form */}
             {canManage && showInterviewForm && (
-              <form onSubmit={handleScheduleInterview} className="grid grid-cols-2 gap-2.5 p-3 bg-slate-50 dark:bg-slate-900/30 border border-slate-200/50 dark:border-darkBorder/40 rounded-xl">
+              <form onSubmit={handleScheduleInterview} className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 p-3 bg-slate-50 dark:bg-slate-900/30 border border-slate-200/50 dark:border-darkBorder/40 rounded-xl">
                 <select
                   value={interviewForm.stage}
                   onChange={(e) => setInterviewForm((f) => ({ ...f, stage: e.target.value }))}
@@ -900,7 +998,7 @@ const CandidateDetails = () => {
                   placeholder="Notes (optional)"
                   className="h-9 px-2 border border-slate-200 dark:border-darkBorder rounded-lg bg-white dark:bg-slate-900 text-xs text-slate-700 dark:text-slate-300 focus:outline-none"
                 />
-                <label className="col-span-2 flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
+                <label className="col-span-1 sm:col-span-2 flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
                   <input
                     type="checkbox"
                     checked={interviewForm.notifyCandidate}
@@ -912,7 +1010,7 @@ const CandidateDetails = () => {
                 <button
                   type="submit"
                   disabled={savingInterview || !interviewForm.scheduledAt}
-                  className="col-span-2 flex items-center justify-center gap-1.5 h-9 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white rounded-lg text-xs font-semibold transition"
+                  className="col-span-1 sm:col-span-2 flex items-center justify-center gap-1.5 h-9 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white rounded-lg text-xs font-semibold transition"
                 >
                   {savingInterview ? <Loader2 size={14} className="animate-spin" /> : <CalendarPlus size={14} />}
                   <span>Schedule Interview</span>
@@ -1011,70 +1109,6 @@ const CandidateDetails = () => {
             </div>
           )}
 
-          {/* Recruiter Evaluation Notes Section */}
-          <div className="p-4 bg-white dark:bg-darkCard border border-slate-200/60 dark:border-darkBorder rounded-xl shadow-premium dark:shadow-premium-dark space-y-3">
-            <h3 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">
-              Recruiter Evaluation History
-            </h3>
-            
-            {/* Notes history list */}
-            <div className="space-y-3.5 max-h-60 overflow-y-auto pr-1">
-              {candidate.notes?.map((n) => (
-                <div key={n._id} className="p-3 bg-slate-50 dark:bg-slate-900/40 border border-slate-200/50 dark:border-darkBorder/40 rounded-xl flex justify-between items-start">
-                  <div className="space-y-1">
-                    <div className="flex items-center space-x-2 text-[10.5px]">
-                      <span className="font-bold text-slate-700 dark:text-slate-300">{n.author?.name || 'Recruiter'}</span>
-                      <span className="text-slate-400">({n.author?.role})</span>
-                      <span className="text-slate-300 dark:text-slate-700">•</span>
-                      <span className="text-slate-400">
-                        {new Date(n.createdAt).toLocaleDateString('en-US', {
-                          month: 'short',
-                          day: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit'
-                        })}
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-600 dark:text-slate-400 leading-normal pr-4">{n.note}</p>
-                  </div>
-                  
-                  {/* Delete note (Only auth-user can do) */}
-                  {(n.author?._id === user?._id || user?.role === 'Admin') && (
-                    <button
-                      onClick={() => handleDeleteNote(n._id)}
-                      className="p-1 text-slate-400 hover:text-rose-500 rounded transition flex-shrink-0"
-                    >
-                      <Trash2 size={13} />
-                    </button>
-                  )}
-                </div>
-              ))}
-              {(!candidate.notes || candidate.notes.length === 0) && (
-                <div className="text-center py-6 text-slate-400 italic text-xs">
-                  No evaluations logged yet.
-                </div>
-              )}
-            </div>
-
-            {/* Note submission input */}
-            <form onSubmit={handleAddNote} className="flex gap-2 pt-2 border-t border-slate-100 dark:border-darkBorder">
-              <input
-                type="text"
-                value={newNote}
-                onChange={(e) => setNewNote(e.target.value)}
-                placeholder="Log a recruiter interview note or screening evaluation..."
-                className="flex-1 h-10 px-3 border border-slate-200 dark:border-darkBorder rounded-xl bg-slate-50/50 dark:bg-slate-900 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
-              />
-              <button
-                type="submit"
-                disabled={addingNote || !newNote.trim()}
-                className="px-4.5 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white rounded-xl flex items-center justify-center transition shadow-sm"
-              >
-                {addingNote ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
-              </button>
-            </form>
-
-          </div>
 
         </div>
 

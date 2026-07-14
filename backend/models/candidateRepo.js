@@ -529,6 +529,19 @@ const CandidateRepo = {
     return (data || []).map((r) => ({ _id: r.id, resumeUrl: r.resume_url }));
   },
 
+  // Count non-trashed applications per (lowercased) email — used to show how
+  // many roles each portal account has applied to.
+  async applicationCountsByEmail() {
+    const { data, error } = await getClient().from(TABLE).select('email').is('deleted_at', null);
+    if (error) throw error;
+    const counts = {};
+    (data || []).forEach((r) => {
+      const e = String(r.email || '').toLowerCase();
+      if (e) counts[e] = (counts[e] || 0) + 1;
+    });
+    return counts;
+  },
+
   // Minimal projection for dashboard aggregation.
   async allForStats() {
     const { data, error } = await getClient()

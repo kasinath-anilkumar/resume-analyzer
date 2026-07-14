@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
-import { Columns, Briefcase, ChevronRight, User, AlertCircle, Loader2, ArrowRight } from 'lucide-react';
+import { Briefcase, ChevronRight, User, AlertCircle, Loader2, Search } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 const PIPELINE_STAGES = [
@@ -16,18 +16,6 @@ const PIPELINE_STAGES = [
   'Rejected'
 ];
 
-const STAGE_COLORS = {
-  'Applied': 'border-t-slate-400 bg-slate-500/5',
-  'Screening': 'border-t-blue-400 bg-blue-500/5',
-  'Shortlisted': 'border-t-indigo-400 bg-indigo-500/5',
-  'Interview': 'border-t-purple-400 bg-purple-500/5',
-  'Technical Round': 'border-t-pink-400 bg-pink-500/5',
-  'HR Round': 'border-t-orange-400 bg-orange-500/5',
-  'Offer': 'border-t-teal-400 bg-teal-500/5',
-  'Hired': 'border-t-emerald-500 bg-emerald-500/10',
-  'Rejected': 'border-t-rose-500 bg-rose-500/5'
-};
-
 const Pipeline = () => {
   const { user } = useAuth();
   const [jobs, setJobs] = useState([]);
@@ -36,52 +24,13 @@ const Pipeline = () => {
   const [loading, setLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState(null);
   
-  // HTML5 Drag States
-  const [draggedCandId, setDraggedCandId] = useState(null);
-  const [dragOverColumn, setDragOverColumn] = useState(null);
+  // High-Volume scaling states
+  const [activeStage, setActiveStage] = useState('Applied');
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const itemsPerPage = 12;
 
   const isHR = ['Admin', 'Recruiter'].includes(user?.role);
-
-  // --- Edge auto-scroll while dragging -------------------------------------
-  // During an HTML5 drag the board won't scroll on its own, so the off-screen
-  // stages (e.g. Hired / Rejected) are unreachable. While a card is dragged we
-  // run a timer that scrolls the board when the pointer nears the left/right
-  // edge, based on the last pointer X reported by the board's onDragOver.
-  const boardRef = useRef(null);
-  const pointerXRef = useRef(0);
-  const scrollTimerRef = useRef(null);
-
-  const EDGE_ZONE = 90; // px from an edge that triggers scrolling
-  const MAX_SPEED = 22; // px per tick at the very edge
-
-  const startAutoScroll = () => {
-    if (scrollTimerRef.current) return;
-    scrollTimerRef.current = setInterval(() => {
-      const el = boardRef.current;
-      const x = pointerXRef.current;
-      if (!el || !x) return;
-      const rect = el.getBoundingClientRect();
-      if (x < rect.left + EDGE_ZONE) {
-        // Closer to the edge → faster scroll.
-        const intensity = (rect.left + EDGE_ZONE - x) / EDGE_ZONE;
-        el.scrollLeft -= Math.ceil(MAX_SPEED * Math.min(1, intensity));
-      } else if (x > rect.right - EDGE_ZONE) {
-        const intensity = (x - (rect.right - EDGE_ZONE)) / EDGE_ZONE;
-        el.scrollLeft += Math.ceil(MAX_SPEED * Math.min(1, intensity));
-      }
-    }, 16);
-  };
-
-  const stopAutoScroll = () => {
-    if (scrollTimerRef.current) {
-      clearInterval(scrollTimerRef.current);
-      scrollTimerRef.current = null;
-    }
-    pointerXRef.current = 0;
-  };
-
-  // Safety net: clear the timer if the component unmounts mid-drag.
-  useEffect(() => () => stopAutoScroll(), []);
 
   useEffect(() => {
     const fetchJobs = async () => {
@@ -120,61 +69,11 @@ const Pipeline = () => {
 
   useEffect(() => {
     fetchCandidates();
+    setPage(1); // Reset page on job select
   }, [selectedJobId]);
 
-  // Drag and Drop implementation
-  const handleDragStart = (e, candidateId) => {
-    if (!isHR) {
-      e.preventDefault();
-      return;
-    }
-    setDraggedCandId(candidateId);
-    e.dataTransfer.setData('text/plain', candidateId);
-    e.dataTransfer.effectAllowed = 'move';
-    startAutoScroll();
-  };
-
-  // Called when the drag ends for any reason (drop, or released outside a column).
-  const handleDragEnd = () => {
-    stopAutoScroll();
-    setDraggedCandId(null);
-    setDragOverColumn(null);
-  };
-
-  // Track the pointer across the whole board so the auto-scroll timer knows
-  // which edge to push toward. preventDefault keeps the board a valid drop area.
-  const handleBoardDragOver = (e) => {
-    e.preventDefault();
-    pointerXRef.current = e.clientX;
-  };
-
-  const handleDragOver = (e, stage) => {
-    e.preventDefault();
-  };
-
-  const handleDragEnter = (e, stage) => {
-    e.preventDefault();
-    if (isHR) {
-      setDragOverColumn(stage);
-    }
-  };
-
-  const handleDragLeave = () => {
-    setDragOverColumn(null);
-  };
-
-  const handleDrop = async (e, targetStage) => {
-    e.preventDefault();
-    setDragOverColumn(null);
-    stopAutoScroll();
-
-    const candidateId = e.dataTransfer.getData('text/plain') || draggedCandId;
-    if (!candidateId || !isHR) return;
-
-    // Find the candidate locally to check if status is actually changing
-    const candidate = candidates.find(c => c._id === candidateId);
-    if (candidate && candidate.status === targetStage) return;
-
+  const handleStageChange = async (candidateId, targetStage) => {
+    if (!isHR) return;
     setUpdatingId(candidateId);
     try {
       // Optimistic Local State Update
@@ -184,7 +83,6 @@ const Pipeline = () => {
 
       const res = await api.put(`/candidates/${candidateId}/status`, { status: targetStage });
       if (!res.data.success) {
-        // Revert on error
         fetchCandidates();
       }
     } catch (err) {
@@ -192,7 +90,6 @@ const Pipeline = () => {
       fetchCandidates();
     } finally {
       setUpdatingId(null);
-      setDraggedCandId(null);
     }
   };
 
@@ -202,25 +99,39 @@ const Pipeline = () => {
     return 'text-rose-500 bg-rose-500/10';
   };
 
+  // Filter candidates for selected stage & search name query
+  const stageCandidates = candidates
+    .filter((c) => c.status === activeStage)
+    .filter((c) => c.name?.toLowerCase().includes(search.toLowerCase()))
+    .sort((a, b) => (b.aiAnalysis?.overallScore || 0) - (a.aiAnalysis?.overallScore || 0));
+
+  // Paginated candidates slice
+  const totalItems = stageCandidates.length;
+  const totalPages = Math.ceil(totalItems / itemsPerPage);
+  const paginatedCandidates = stageCandidates.slice(
+    (page - 1) * itemsPerPage,
+    page * itemsPerPage
+  );
+
   return (
-    <div className="space-y-3 animate-in fade-in duration-300 flex flex-col h-[calc(100vh-140px)]">
+    <div className="space-y-4 animate-in fade-in duration-300 flex flex-col min-h-[calc(100vh-140px)]">
       
       {/* Title & Select Job */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 flex-shrink-0">
         <div>
-          <h2 className="text-xl font-extrabold text-slate-800 dark:text-slate-100">Hiring Pipeline Board</h2>
-          <p className="text-xs text-slate-500">
-            {isHR ? 'Drag and drop applicant profile cards across status stages.' : 'View current progression steps of applicants.'}
+          <h2 className="text-sm sm:text-base md:text-xl font-extrabold text-slate-800 dark:text-slate-100">Hiring Pipeline Board</h2>
+          <p className="text-[9px] sm:text-[10px] md:text-xs text-slate-500">
+            Select pipeline stages to manage candidate progression steps.
           </p>
         </div>
 
         {/* Job selector */}
-        <div className="flex items-center space-x-2 bg-white dark:bg-darkCard border border-slate-200 dark:border-darkBorder px-3 py-1.5 rounded-lg shadow-sm">
+        <div className="flex items-center space-x-2 bg-white dark:bg-darkCard border border-slate-200 dark:border-darkBorder px-3 py-1.5 rounded-xl shadow-sm">
           <Briefcase size={14} className="text-slate-400" />
           <select
             value={selectedJobId}
             onChange={(e) => setSelectedJobId(e.target.value)}
-            className="border-none bg-transparent text-xs font-bold text-slate-700 dark:text-slate-300 focus:outline-none"
+            className="border-none bg-transparent text-[10px] sm:text-xs font-bold text-slate-700 dark:text-slate-300 focus:outline-none"
           >
             {jobs.length === 0 ? (
               <option value="">No Active Job Openings</option>
@@ -233,100 +144,175 @@ const Pipeline = () => {
         </div>
       </div>
 
-      {/* Board Zone */}
+      {/* Stage Navigation Row */}
+      <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-thin flex-shrink-0">
+        {PIPELINE_STAGES.map((stage) => {
+          const stageTotal = candidates.filter((c) => c.status === stage).length;
+          const isActive = activeStage === stage;
+          return (
+            <button
+              key={stage}
+              onClick={() => { setActiveStage(stage); setPage(1); }}
+              className={`flex items-center gap-2 px-3 py-2 border transition-all shrink-0 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-semibold uppercase tracking-wider ${
+                isActive
+                  ? 'bg-brand-600 text-white border-brand-600 shadow-md shadow-brand-500/10'
+                  : 'bg-white dark:bg-darkCard hover:bg-slate-50 dark:hover:bg-slate-800/40 text-slate-600 dark:text-slate-300 border-slate-200/60 dark:border-darkBorder'
+              }`}
+            >
+              <span>{stage}</span>
+              <span className={`px-1.5 py-0.5 rounded-full text-[8px] sm:text-[9px] font-bold ${
+                isActive ? 'bg-white/20 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'
+              }`}>
+                {stageTotal}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Content & List area */}
       {loading ? (
-        <div className="flex-1 flex items-center justify-center">
+        <div className="flex-1 flex items-center justify-center py-20">
           <Loader2 size={32} className="animate-spin text-brand-500" />
         </div>
       ) : !selectedJobId ? (
-        <div className="flex-1 flex flex-col items-center justify-center p-4 text-center border border-dashed border-slate-200 dark:border-darkBorder rounded-xl bg-white dark:bg-darkCard">
+        <div className="flex-1 flex flex-col items-center justify-center p-8 text-center border border-dashed border-slate-200 dark:border-darkBorder rounded-2xl bg-white dark:bg-darkCard">
           <AlertCircle className="text-slate-300 dark:text-slate-700 mb-3" size={36} />
-          <h3 className="text-xs font-bold text-slate-600 dark:text-slate-400">No Job Profile Selected</h3>
+          <h3 className="text-xs font-bold text-slate-600 dark:text-slate-400">No Job Opening Selected</h3>
           <p className="text-[10px] text-slate-400 mt-1 max-w-xs">
             Create an active job opening first to begin managing pipelines.
           </p>
         </div>
       ) : (
-        <div
-          ref={boardRef}
-          onDragOver={handleBoardDragOver}
-          onDragEnd={handleDragEnd}
-          className="flex-1 overflow-x-auto flex space-x-4 pb-4 select-none pr-1"
-        >
-          {PIPELINE_STAGES.map((stage) => {
-            const stageCandidates = candidates.filter((c) => c.status === stage);
-            const isHovered = dragOverColumn === stage;
+        <div className="space-y-4 flex-1 flex flex-col justify-between">
+          
+          {/* Active Stage Panel & Search */}
+          <div className="bg-white dark:bg-darkCard border border-slate-200/60 dark:border-darkBorder rounded-2xl p-4 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h3 className="text-[10px] sm:text-xs font-bold uppercase tracking-widest text-brand-500">
+                Stage: {activeStage}
+              </h3>
+              <p className="text-[9px] sm:text-[10px] text-slate-400 mt-0.5">
+                Showing {totalItems} matches in this stage (Sorted by AI Overall Score).
+              </p>
+            </div>
 
-            return (
-              <div
-                key={stage}
-                onDragOver={(e) => handleDragOver(e, stage)}
-                onDragEnter={(e) => handleDragEnter(e, stage)}
-                onDragLeave={handleDragLeave}
-                onDrop={(e) => handleDrop(e, stage)}
-                className={`w-64 rounded-2xl flex flex-col border-t-4 border-l border-r border-b border-slate-200/50 dark:border-darkBorder/40 transition-all flex-shrink-0 ${
-                  STAGE_COLORS[stage]
-                } ${isHovered ? 'ring-2 ring-brand-500 scale-[1.01]' : ''}`}
-              >
-                {/* Column header */}
-                <div className="px-4 py-3.5 flex items-center justify-between border-b border-slate-200/40 dark:border-darkBorder/20 bg-white/40 dark:bg-darkCard/20">
-                  <span className="text-[10.5px] font-bold text-slate-700 dark:text-slate-300">
-                    {stage}
-                  </span>
-                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-200/60 dark:bg-slate-800 text-slate-500">
-                    {stageCandidates.length}
-                  </span>
-                </div>
+            {/* Search Input */}
+            <div className="relative w-full sm:w-64">
+              <Search size={14} className="absolute left-3 top-2.5 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search candidates by name..."
+                value={search}
+                onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+                className="w-full h-9 pl-9 pr-3 border border-slate-200 dark:border-darkBorder rounded-xl bg-slate-50/50 dark:bg-slate-900 text-xs text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
+              />
+            </div>
+          </div>
 
-                {/* Candidate cards container */}
-                <div className="flex-1 overflow-y-auto p-3.5 space-y-3.5 min-h-[380px]">
-                  {stageCandidates.map((cand) => (
-                    <div
-                      key={cand._id}
-                      draggable={isHR}
-                      onDragStart={(e) => handleDragStart(e, cand._id)}
-                      onDragEnd={handleDragEnd}
-                      className={`p-3.5 bg-white dark:bg-darkCard border border-slate-200/60 dark:border-darkBorder rounded-xl shadow-sm relative transition ${
-                        isHR ? 'cursor-grab active:cursor-grabbing hover:shadow hover:border-brand-300 dark:hover:border-brand-800' : 'cursor-default'
-                      } ${updatingId === cand._id ? 'opacity-40 animate-pulse' : ''}`}
-                    >
-                      <div className="flex justify-between items-start">
-                        <h4 className="text-xs font-bold text-slate-800 dark:text-slate-100 leading-snug truncate pr-3 max-w-[130px]">
-                          {cand.name}
-                        </h4>
-                        <span className={`text-[9.5px] font-bold px-1.5 py-0.5 rounded ${getScoreColor(cand.aiAnalysis?.overallScore || 0)}`}>
-                          {cand.aiAnalysis?.overallScore || 0}%
+          {/* Cards Grid */}
+          {paginatedCandidates.length === 0 ? (
+            <div className="flex-1 flex flex-col items-center justify-center p-16 border border-dashed border-slate-200 dark:border-darkBorder rounded-2xl bg-white dark:bg-darkCard text-center">
+              <User className="text-slate-300 dark:text-slate-700 mb-3" size={36} />
+              <h3 className="text-xs font-bold text-slate-700 dark:text-slate-300">No Candidates Found</h3>
+              <p className="text-[10px] text-slate-400 mt-1">
+                There are no candidates in the "{activeStage}" stage matching your filters.
+              </p>
+            </div>
+          ) : (
+            <div className="flex-1">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                {paginatedCandidates.map((cand) => (
+                  <div
+                    key={cand._id}
+                    className={`p-4 bg-white dark:bg-darkCard border border-slate-200/60 dark:border-darkBorder rounded-xl shadow-sm relative transition hover:shadow-md hover:-translate-y-0.5 flex flex-col justify-between ${
+                      updatingId === cand._id ? 'opacity-40 animate-pulse' : ''
+                    }`}
+                  >
+                    <div>
+                      {/* Name & Match Score */}
+                      <div className="flex justify-between items-start gap-2">
+                        <div className="min-w-0">
+                          <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-100 leading-snug truncate">
+                            {cand.name}
+                          </h4>
+                          <span className="text-[9px] text-slate-400 block mt-0.5">{cand.email}</span>
+                        </div>
+                        <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded-md shrink-0 ${getScoreColor(cand.aiAnalysis?.overallScore || 0)}`}>
+                          {cand.aiAnalysis?.overallScore || 0}% Match
                         </span>
                       </div>
 
-                      {/* Details links */}
-                      <div className="flex items-center justify-between mt-4 pt-3 border-t border-slate-100 dark:border-darkBorder/50">
-                        <span className="text-[9.5px] text-slate-400 font-medium">
-                          Skills Match: {cand.aiAnalysis?.matchedSkills?.length || 0}
-                        </span>
-                        
-                        <Link
-                          to={`/candidates/${cand._id}`}
-                          className="flex items-center space-x-0.5 text-[9.5px] font-bold text-brand-500 hover:text-brand-600 hover:underline"
+                      {/* Info Panel */}
+                      <div className="mt-3.5 space-y-1.5 text-[9.5px] text-slate-500 dark:text-slate-400 border-t border-b border-slate-100 dark:border-darkBorder/40 py-2.5">
+                        <div className="flex items-center justify-between">
+                          <span>Skills Match:</span>
+                          <span className="font-semibold text-slate-700 dark:text-slate-300">
+                            {cand.aiAnalysis?.matchedSkills?.length || 0} skills
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span>Verdict:</span>
+                          <span className="font-semibold text-slate-700 dark:text-slate-300">
+                            {cand.aiAnalysis?.screeningVerdict || 'Pending'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Actions and Stage Selector */}
+                    <div className="mt-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pt-2 border-t border-slate-100 dark:border-darkBorder/40">
+                      <div className="flex items-center gap-1.5 w-full sm:w-auto min-w-0">
+                        <span className="text-[9px] text-slate-400 uppercase tracking-wider font-semibold shrink-0">Stage:</span>
+                        <select
+                          value={cand.status}
+                          onChange={(e) => handleStageChange(cand._id, e.target.value)}
+                          className="flex-1 sm:flex-initial text-[9px] font-bold border border-slate-200 dark:border-darkBorder rounded-lg bg-slate-50 dark:bg-slate-900 p-1 text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-1 focus:ring-brand-500 min-w-0"
                         >
-                          <span>Review</span>
-                          <ChevronRight size={10} />
-                        </Link>
+                          {PIPELINE_STAGES.map((s) => (
+                            <option key={s} value={s}>{s}</option>
+                          ))}
+                        </select>
                       </div>
 
+                      <Link
+                        to={`/candidates/${cand._id}`}
+                        className="flex items-center justify-center space-x-0.5 text-[9px] uppercase tracking-wider font-bold text-brand-500 hover:text-brand-600 transition py-1 sm:py-0 w-full sm:w-auto border border-brand-500/20 sm:border-none rounded-lg sm:rounded-none bg-brand-500/5 sm:bg-transparent shrink-0"
+                      >
+                        <span>Review</span>
+                        <ChevronRight size={10} />
+                      </Link>
                     </div>
-                  ))}
-                  
-                  {stageCandidates.length === 0 && (
-                    <div className="h-full flex items-center justify-center text-center p-3 border border-dashed border-slate-200/30 dark:border-darkBorder/10 rounded-xl">
-                      <span className="text-[10px] text-slate-400 italic">Stage Empty</span>
-                    </div>
-                  )}
-                </div>
 
+                  </div>
+                ))}
               </div>
-            );
-          })}
+            </div>
+          )}
+
+          {/* Pagination Footer */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-center gap-2 pt-4 border-t border-slate-100 dark:border-darkBorder/40 flex-shrink-0">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page === 1}
+                className="px-3 py-1.5 border border-slate-200 dark:border-darkBorder rounded-xl text-xs font-semibold hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-40 transition"
+              >
+                Previous
+              </button>
+              <span className="text-xs text-slate-400 font-bold">
+                Page {page} of {totalPages}
+              </span>
+              <button
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page === totalPages}
+                className="px-3 py-1.5 border border-slate-200 dark:border-darkBorder rounded-xl text-xs font-semibold hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-40 transition"
+              >
+                Next
+              </button>
+            </div>
+          )}
+
         </div>
       )}
 

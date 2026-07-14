@@ -44,6 +44,23 @@ const ApplicantRepo = {
     return toApi(data);
   },
 
+  // Admin/recruiter listing of everyone registered on the careers portal.
+  async listAll() {
+    const { data, error } = await getClient()
+      .from(TABLE)
+      .select('id, name, email, phone, location, created_at')
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    return (data || []).map((r) => ({
+      _id: r.id,
+      name: r.name,
+      email: r.email,
+      phone: r.phone || '',
+      location: r.location || '',
+      createdAt: r.created_at,
+    }));
+  },
+
   async existsByEmail(email) {
     const { data, error } = await getClient()
       .from(TABLE)
@@ -64,6 +81,18 @@ const ApplicantRepo = {
       .single();
     if (error) throw error;
     return toApi(data);
+  },
+
+  // Delete the account by id (account-only). Applications keep their rows —
+  // candidates.applicant_id is set null by the FK. Returns email + resume_url.
+  async deleteById(id) {
+    const { data, error } = await getClient()
+      .from(TABLE)
+      .delete()
+      .eq('id', id)
+      .select('id, email, resume_url');
+    if (error) throw error;
+    return data && data.length ? { _id: data[0].id, email: data[0].email, resumeUrl: data[0].resume_url } : null;
   },
 
   async findRawById(id) {
