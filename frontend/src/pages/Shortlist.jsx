@@ -104,7 +104,7 @@ const Shortlist = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-extrabold text-slate-800 dark:text-slate-100 flex items-center">
-            <Sparkles size={18} className="mr-2 text-brand-500" /> AI Shortlist
+            <Sparkles size={18} className="mr-2 text-brand-500" /> Recommended Candidates
           </h2>
           <p className="text-xs text-slate-500">Your whole talent pool ranked by fit for this role — including strong candidates who applied elsewhere.</p>
         </div>

@@ -2,12 +2,15 @@ const express = require('express');
 const router = express.Router();
 const { listJobs, getJob, apply } = require('../controllers/publicController');
 const upload = require('../middleware/upload');
-const { applyLimiter } = require('../middleware/rateLimit');
+const { applyLimiter, applyBurstLimiter } = require('../middleware/rateLimit');
+const { attachApplicant } = require('../middleware/auth');
 
 // Public careers endpoints — NO auth. Only active jobs are exposed, and the
 // apply endpoint is rate-limited to curb spam.
 router.get('/jobs', listJobs);
 router.get('/jobs/:id', getJob);
-router.post('/apply', applyLimiter, upload.single('resume'), apply);
+// attachApplicant soft-decodes an applicant token (if present) so logged-in
+// applicants can reuse their saved résumé and link the application to their account.
+router.post('/apply', applyBurstLimiter, applyLimiter, attachApplicant, upload.single('resume'), apply);
 
 module.exports = router;

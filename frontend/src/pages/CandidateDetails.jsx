@@ -34,7 +34,9 @@ import {
   MessageSquare,
   Award,
   Gauge,
-  ClipboardList
+  ClipboardList,
+  MapPin,
+  Wallet
 } from 'lucide-react';
 
 // Dynamic score coloring: green (strong) / amber (moderate) / red (weak).
@@ -255,7 +257,7 @@ const CandidateDetails = () => {
   const handleDeleteCandidate = async () => {
     if (
       !window.confirm(
-        `Delete ${candidate.name}? This permanently removes the candidate, their AI analysis, notes and the stored resume file. This cannot be undone.`
+        `Move ${candidate.name} to Trash? You can restore them within 30 days, after which they're permanently deleted.`
       )
     )
       return;
@@ -268,6 +270,30 @@ const CandidateDetails = () => {
     } catch (err) {
       console.error(err);
       window.alert(err.response?.data?.message || 'Failed to delete candidate.');
+      setDeleting(false);
+    }
+  };
+
+  // GDPR erasure — deletes the whole person: portal account + ALL their
+  // applications + all résumé files. Irreversible; not a Trash move.
+  const handleDeletePerson = async () => {
+    const email = candidate.email || '';
+    if (
+      !window.confirm(
+        `GDPR delete ${candidate.name} (${email})?\n\nThis permanently erases their portal account AND every application they have (across all jobs) AND all their résumé files. This is NOT recoverable and does not go to Trash.\n\nProceed?`
+      )
+    )
+      return;
+    try {
+      setDeleting(true);
+      const res = await api.delete(`/candidates/${id}/person`);
+      if (res.data.success) {
+        window.alert(res.data.message || 'All data for this person was erased.');
+        navigate('/candidates');
+      }
+    } catch (err) {
+      console.error(err);
+      window.alert(err.response?.data?.message || 'Failed to erase person.');
       setDeleting(false);
     }
   };
@@ -382,11 +408,22 @@ const CandidateDetails = () => {
             <button
               onClick={handleDeleteCandidate}
               disabled={deleting}
-              title="Delete candidate & resume"
+              title="Move candidate to Trash (recoverable for 30 days)"
               className="flex items-center space-x-1.5 px-4 py-2 border border-rose-200 dark:border-rose-900/40 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded-xl text-xs font-semibold transition disabled:opacity-50"
             >
               {deleting ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
               <span>{deleting ? 'Deleting...' : 'Delete'}</span>
+            </button>
+          )}
+          {canDelete && (
+            <button
+              onClick={handleDeletePerson}
+              disabled={deleting}
+              title="GDPR erase: delete this person's account and ALL their applications permanently"
+              className="flex items-center space-x-1.5 px-4 py-2 border border-rose-300 dark:border-rose-800 bg-rose-600 text-white hover:bg-rose-700 rounded-xl text-xs font-semibold transition disabled:opacity-50"
+            >
+              <AlertTriangle size={14} />
+              <span>Erase Person</span>
             </button>
           )}
         </div>
@@ -554,6 +591,18 @@ const CandidateDetails = () => {
                   <div className="flex items-center space-x-2">
                     <Phone size={13} className="text-slate-400" />
                     <span>{candidate.phone}</span>
+                  </div>
+                )}
+                {candidate.currentLocation && (
+                  <div className="flex items-center space-x-2">
+                    <MapPin size={13} className="text-slate-400" />
+                    <span>{candidate.currentLocation}</span>
+                  </div>
+                )}
+                {candidate.salaryExpectation && (
+                  <div className="flex items-center space-x-2">
+                    <Wallet size={13} className="text-slate-400" />
+                    <span title="Salary expectation">{candidate.salaryExpectation}</span>
                   </div>
                 )}
               </div>

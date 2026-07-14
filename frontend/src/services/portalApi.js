@@ -25,7 +25,7 @@ portalApi.interceptors.response.use(
       const path = window.location.pathname;
       // Don't bounce while on the auth screens themselves.
       if (!/\/portal\/(login|register|forgot|reset)/.test(path) && path.startsWith('/portal')) {
-        window.location.href = '/portal/login';
+        window.location.href = '/login';
       }
     }
     return Promise.reject(error);

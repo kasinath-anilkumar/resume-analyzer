@@ -34,6 +34,15 @@ export const AuthProvider = ({ children }) => {
     initializeAuth();
   }, []);
 
+  // Persist a session from a pre-fetched auth payload (used by the shared login
+  // page after the unified /auth/signin call identifies a staff member).
+  const persistSession = (data) => {
+    const { token, success, type, ...userData } = data;
+    localStorage.setItem('token', token);
+    localStorage.setItem('user', JSON.stringify(userData));
+    setUser(userData);
+  };
+
   const login = async (email, password) => {
     try {
       const res = await api.post('/auth/login', { email, password });
@@ -99,7 +108,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, forgotPassword, changePassword, hasRole }}>
+    <AuthContext.Provider value={{ user, loading, login, logout, forgotPassword, changePassword, hasRole, persistSession }}>
       {children}
     </AuthContext.Provider>
   );

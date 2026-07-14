@@ -49,12 +49,15 @@ exports.getJob = async (req, res) => {
 // @access  Public
 exports.apply = async (req, res) => {
   try {
-    if (!req.file || !req.file.buffer) {
-      return res.status(400).json({ success: false, message: 'Please attach your résumé.' });
-    }
-    const { jobId, name, email, phone } = req.body;
+    const { jobId, name, email, phone, currentLocation, salaryExpectation } = req.body;
     if (!jobId || !name || !email) {
       return res.status(400).json({ success: false, message: 'Name, email and a job are required.' });
+    }
+    // A logged-in applicant (attachApplicant) may reuse their saved primary
+    // résumé instead of uploading one.
+    const usePrimaryResume = String(req.body.usePrimaryResume) === 'true' && Boolean(req.applicant?.resumeUrl);
+    if ((!req.file || !req.file.buffer) && !usePrimaryResume) {
+      return res.status(400).json({ success: false, message: 'Please attach your résumé.' });
     }
 
     // 1) Job must exist and be open. Use the FULL job (with quiz answer keys) so
@@ -62,6 +65,20 @@ exports.apply = async (req, res) => {
     const job = await JobRepo.findById(jobId);
     if (!job || job.status !== 'Active') {
       return res.status(404).json({ success: false, message: 'This position is no longer accepting applications.' });
+    }
+
+    // Block a repeat application to the same role by the same email.
+    try {
+      if (await CandidateRepo.existsForJobEmail(job._id, email)) {
+        return res.status(409).json({
+          success: false,
+          code: 'ALREADY_APPLIED',
+          message: "You've already applied to this position. You can track its status from your portal.",
+        });
+      }
+    } catch (dupErr) {
+      // Non-fatal: don't block a genuine applicant if the check itself errors.
+      console.error('Apply dedup check failed:', dupErr.message);
     }
 
     // 2) Parse screening answers (sent as a JSON string from the form).
@@ -89,10 +106,17 @@ exports.apply = async (req, res) => {
       });
     }
 
-    // 3) Store the résumé (required — a candidate must have a résumé on file).
+    // 3) Store the résumé. Either the uploaded file, or a COPY of the applicant's
+    //    saved primary résumé (copied into a per-application object so lifecycle
+    //    events like retention purge never touch the applicant's saved copy).
     let stored;
     try {
-      stored = await StorageService.uploadResume(req.file.buffer, req.file.originalname, req.file.mimetype);
+      if (req.file && req.file.buffer) {
+        stored = await StorageService.uploadResume(req.file.buffer, req.file.originalname, req.file.mimetype);
+      } else {
+        const f = await StorageService.downloadResume(req.applicant.resumeUrl);
+        stored = await StorageService.uploadResume(f.buffer, f.originalName, f.mimeType);
+      }
     } catch (storageErr) {
       console.error('Apply: storage failed:', storageErr.message);
       return res.status(502).json({ success: false, message: 'We could not store your résumé. Please try again.' });
@@ -105,8 +129,11 @@ exports.apply = async (req, res) => {
       name: name.trim(),
       email: String(email).trim().toLowerCase(),
       phone: (phone || '').trim(),
+      currentLocation: (currentLocation || '').trim(),
+      salaryExpectation: (salaryExpectation || '').trim(),
       resumeUrl: stored.url,
       jobId: job._id,
+      applicantId: req.applicant?.id, // link to the portal account when signed in
       status: 'Applied',
       source: 'Application',
       screeningAnswers,

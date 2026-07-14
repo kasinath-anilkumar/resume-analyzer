@@ -180,3 +180,44 @@ html[data-theme-transition='to-light']::view-transition-new(root) {
   box-shadow: 0 0 0 1px #c5a880 !important;
 }
 
+/* Country-code phone input (react-phone-number-input) themed like .luxury-input.
+   The whole widget is the bordered box; the flag/country dropdown sits inside it
+   on the left, followed by the borderless number field. */
+.luxury-phone {
+  height: 2.75rem;               /* h-11 */
+  padding: 0 0.75rem;
+  border: 1px solid rgba(28, 28, 28, 0.2);
+  background: transparent;
+  display: flex;
+  align-items: center;
+  transition: all 0.3s ease;
+}
+.luxury-phone:focus-within {
+  border-color: #c5a880;
+  box-shadow: 0 0 0 1px #c5a880;
+}
+.luxury-phone-error,
+.luxury-phone-error:focus-within {
+  border-color: #f43f5e !important;
+  box-shadow: 0 0 0 1px #f43f5e !important;
+}
+.luxury-phone .PhoneInputInput {
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 0.75rem;            /* text-xs */
+  letter-spacing: 0.025em;       /* tracking-wide */
+  font-family: 'Montserrat', sans-serif;
+  color: inherit;
+}
+.luxury-phone .PhoneInputCountrySelect { color: inherit; cursor: pointer; }
+.luxury-phone .PhoneInputCountryIcon { box-shadow: none; }
+.dark .luxury-phone {
+  border-color: rgba(226, 209, 195, 0.2);
+  background-color: #151210;
+}
+.dark .luxury-phone:focus-within {
+  border-color: #c5a880;
+  box-shadow: 0 0 0 1px #c5a880;
+}
+

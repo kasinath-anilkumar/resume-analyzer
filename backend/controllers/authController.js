@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const UserRepo = require('../models/userRepo');
+const ApplicantRepo = require('../models/applicantRepo');
 const EmailService = require('../services/emailService');
 const AuditRepo = require('../models/auditRepo');
 
@@ -10,6 +11,11 @@ const generateToken = (id) => {
     expiresIn: '30d',
   });
 };
+
+// Applicant tokens carry `typ:'applicant'` so they can NEVER satisfy a recruiter
+// route (protect rejects them; only protectApplicant accepts them).
+const generateApplicantToken = (id) =>
+  jwt.sign({ id, typ: 'applicant' }, process.env.JWT_SECRET, { expiresIn: '30d' });
 
 // Public app (frontend) base URL, used in emailed links.
 const appBaseUrl = () => {
@@ -47,6 +53,89 @@ exports.loginUser = async (req, res) => {
   } catch (error) {
     console.error(error);
     return res.status(500).json({ success: false, message: 'Server error during login' });
+  }
+};
+
+// @desc    Unified sign-in for BOTH staff and applicants. The recruiter `users`
+//          store is checked first, then the careers-portal `applicants` store,
+//          and the correctly-TYPED token is issued for whichever authenticates.
+//          A single generic error is returned for every failure (no user
+//          enumeration). A candidate can only ever receive an applicant token,
+//          which the recruiter middleware refuses — so there is no path to
+//          staff access through this endpoint.
+// @route   POST /api/auth/signin
+// @access  Public
+exports.signin = async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ success: false, message: 'Email and password are required.' });
+    }
+
+    // 1) Staff (recruiter) — higher privilege, checked first.
+    const staff = await UserRepo.findRawByEmail(email);
+    if (staff && (await UserRepo.matchPassword(password, staff))) {
+      const u = UserRepo.toApi(staff);
+      return res.json({
+        success: true, type: 'staff',
+        _id: u._id, name: u.name, email: u.email, role: u.role,
+        token: generateToken(u._id),
+      });
+    }
+
+    // 2) Applicant (careers portal) — issued an applicant-typed token only.
+    const applicant = await ApplicantRepo.findRawByEmail(email);
+    if (applicant && (await ApplicantRepo.matchPassword(password, applicant))) {
+      const a = ApplicantRepo.toApi(applicant);
+      return res.json({
+        success: true, type: 'applicant',
+        _id: a._id, name: a.name, email: a.email,
+        token: generateApplicantToken(a._id),
+      });
+    }
+
+    return res.status(401).json({ success: false, message: 'Invalid email or password' });
+  } catch (error) {
+    console.error('Unified signin error:', error);
+    return res.status(500).json({ success: false, message: 'Server error during login' });
+  }
+};
+
+// @desc    Unified forgot-password for staff OR applicants. Sends the reset
+//          email appropriate to whichever store the address belongs to, always
+//          with the same generic response (no enumeration).
+// @route   POST /api/auth/forgot
+// @access  Public
+exports.unifiedForgot = async (req, res) => {
+  const generic = {
+    success: true,
+    message: 'If an account exists for that email, a password reset link has been sent (valid for 1 hour).',
+  };
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ success: false, message: 'Email is required.' });
+
+    const staff = await UserRepo.findRawByEmail(email);
+    if (staff) {
+      const token = crypto.randomBytes(32).toString('hex');
+      const expires = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+      await UserRepo.setResetToken(staff.id, sha256(token), expires);
+      const link = `${appBaseUrl()}/reset-password?token=${token}&email=${encodeURIComponent(staff.email)}`;
+      await EmailService.sendPasswordReset({ name: staff.name, email: staff.email }, link);
+      return res.json(generic);
+    }
+    const applicant = await ApplicantRepo.findRawByEmail(email);
+    if (applicant) {
+      const token = crypto.randomBytes(32).toString('hex');
+      const expires = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+      await ApplicantRepo.setResetToken(applicant.id, sha256(token), expires);
+      const link = `${appBaseUrl()}/portal/reset-password?token=${token}&email=${encodeURIComponent(applicant.email)}`;
+      await EmailService.sendApplicantPasswordReset({ name: applicant.name, email: applicant.email }, link);
+    }
+    return res.json(generic);
+  } catch (error) {
+    console.error('Unified forgot error:', error);
+    return res.status(500).json({ success: false, message: 'Server error during password reset request' });
   }
 };
 

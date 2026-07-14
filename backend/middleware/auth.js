@@ -76,4 +76,24 @@ const protectApplicant = async (req, res, next) => {
   }
 };
 
-module.exports = { protect, authorize, protectApplicant };
+// Soft applicant auth: if a valid APPLICANT token is present, attach the full
+// applicant profile to req.applicant — but never block (anonymous is allowed).
+// Used on the public apply route so a logged-in applicant can reuse their saved
+// primary résumé and have the application linked to their account.
+const attachApplicant = async (req, res, next) => {
+  try {
+    const h = req.headers.authorization;
+    if (h && h.startsWith('Bearer')) {
+      const decoded = jwt.verify(h.split(' ')[1], process.env.JWT_SECRET);
+      if (decoded.typ === 'applicant') {
+        const a = await ApplicantRepo.findById(decoded.id);
+        if (a) req.applicant = a; // full profile (incl. resumeUrl)
+      }
+    }
+  } catch (_) {
+    // Invalid/expired token → treat as anonymous, don't block.
+  }
+  next();
+};
+
+module.exports = { protect, authorize, protectApplicant, attachApplicant };

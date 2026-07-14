@@ -3,8 +3,8 @@ import { useParams, Link } from 'react-router-dom';
 import portalApi from '../../services/portalApi';
 import PortalShell, { statusPill } from './PortalShell';
 import {
-  Loader2, ChevronLeft, MapPin, Clock, Briefcase, Calendar, CheckCircle2,
-  Circle, CalendarClock, Video, Building2, AlertCircle
+  Loader2, ChevronLeft, MapPin, Clock, Briefcase, Calendar,
+  CalendarClock, Video, Building2, AlertCircle
 } from 'lucide-react';
 
 const fmtDateTime = (d) => (d ? new Date(d).toLocaleString(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'To be scheduled');
@@ -61,30 +61,43 @@ const PortalApplicationDetail = () => {
               <span className={`text-[10px] font-bold px-3 py-1.5 rounded-none border uppercase tracking-wider ${statusPill(app.outcome)}`}>{app.status}</span>
             </div>
 
-            {/* Timeline */}
+            {/* Timeline Progress Pipeline */}
             <div className="mt-8 pt-6 border-t luxury-border-thin">
-              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-[0.2em] block mb-5">Application Progress</span>
-              <ol className="space-y-4">
+              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-[0.25em] block mb-6">Application Progress</span>
+              
+              <div className="relative pl-6 border-l luxury-border-thin ml-3 space-y-6">
                 {app.timeline.map((step, i) => {
                   const negativeFinal = app.outcome === 'negative' && i === app.timeline.length - 1;
                   return (
-                    <li key={i} className="flex items-center gap-3">
-                      {step.done ? (
-                        <CheckCircle2 size={18} className={negativeFinal ? 'text-rose-500' : 'text-[#c5a880]'} />
-                      ) : step.current ? (
-                        <div className={`w-[18px] h-[18px] rounded-full border-2 ${negativeFinal ? 'border-rose-500' : 'border-[#c5a880]'} flex items-center justify-center`}>
-                          <div className={`w-1.5 h-1.5 rounded-full ${negativeFinal ? 'bg-rose-500' : 'bg-[#c5a880]'}`} />
-                        </div>
-                      ) : (
-                        <Circle size={18} className="text-slate-300 dark:text-slate-700" />
-                      )}
-                      <span className={`text-xs tracking-wide uppercase ${step.current ? 'font-bold text-[#1c1c1c] dark:text-[#f5efe9]' : step.done ? 'text-slate-600 dark:text-slate-300' : 'text-slate-400'}`}>
-                        {negativeFinal ? 'Decision — Not Selected' : step.label}
+                    <div key={i} className="relative flex items-start gap-4">
+                      {/* Node circle on the vertical left line */}
+                      <span className="absolute -left-[31px] top-0.5 flex h-4 w-4 items-center justify-center bg-white dark:bg-[#151210]">
+                        {step.done ? (
+                          <div className={`w-2.5 h-2.5 rounded-none rotate-45 ${negativeFinal ? 'bg-rose-500' : 'bg-[#c5a880]'}`} />
+                        ) : step.current ? (
+                          <div className={`w-3.5 h-3.5 border-2 ${negativeFinal ? 'border-rose-500' : 'border-[#c5a880]'} bg-white dark:bg-[#151210] flex items-center justify-center`}>
+                            <div className={`w-1.5 h-1.5 ${negativeFinal ? 'bg-rose-500' : 'bg-[#c5a880]'} animate-pulse`} />
+                          </div>
+                        ) : (
+                          <div className="w-2.5 h-2.5 rounded-none border border-slate-300 dark:border-slate-800 bg-white dark:bg-[#151210]" />
+                        )}
                       </span>
-                    </li>
+                      
+                      <div className="flex-1">
+                        <span className={`text-[11px] tracking-widest uppercase font-semibold block ${step.current ? 'text-[#1c1c1c] dark:text-[#f5efe9]' : step.done ? 'text-slate-700 dark:text-slate-300' : 'text-slate-400'}`}>
+                          {negativeFinal ? 'Decision — Not Selected' : step.label}
+                        </span>
+                        {step.done && (
+                          <span className="text-[9px] tracking-wider text-slate-400 dark:text-slate-500 block mt-0.5 uppercase font-medium">Completed</span>
+                        )}
+                        {step.current && !negativeFinal && (
+                          <span className="text-[9px] tracking-wider text-[#c5a880] block mt-0.5 uppercase font-medium animate-pulse">In Progress</span>
+                        )}
+                      </div>
+                    </div>
                   );
                 })}
-              </ol>
+              </div>
             </div>
           </div>
 
@@ -94,7 +107,7 @@ const PortalApplicationDetail = () => {
               <span className="text-[9px] font-bold text-slate-400 uppercase tracking-[0.2em] flex items-center gap-1.5 mb-5"><CalendarClock size={13} className="text-[#c5a880]" /> Interviews</span>
               <div className="space-y-4">
                 {app.interviews.map((iv, i) => (
-                  <div key={i} className="p-4 border luxury-border-thin flex items-start gap-3">
+                  <div key={i} className="p-4 border luxury-border-thin flex items-start gap-3 bg-white/50 dark:bg-black/10">
                     {iv.mode === 'Online' ? <Video size={16} className="text-[#c5a880] mt-0.5" /> : <Building2 size={16} className="text-[#c5a880] mt-0.5" />}
                     <div className="flex-1">
                       <div className="flex items-center justify-between flex-wrap gap-2">

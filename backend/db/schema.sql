@@ -51,6 +51,12 @@ create table if not exists applicants (
   updated_at timestamptz not null default now()
 );
 create index if not exists applicants_email_idx on applicants(lower(email));
+-- Self-service profile fields (careers portal → Profile page).
+alter table applicants add column if not exists linkedin_url  text;
+alter table applicants add column if not exists portfolio_url text;
+alter table applicants add column if not exists bio          text;
+alter table applicants add column if not exists resume_url   text;  -- reusable "primary résumé"
+alter table applicants add column if not exists location     text;  -- current location
 
 -- ---------------------------------------------------------------------------
 --  jobs
@@ -130,6 +136,13 @@ alter table candidates add column if not exists consent_at timestamptz;
 -- deleting a portal account never cascades away the application record.
 alter table candidates add column if not exists applicant_id uuid references applicants(id) on delete set null;
 create index if not exists candidates_applicant_id_idx on candidates(applicant_id);
+-- Applicant-provided details captured on the public apply form.
+alter table candidates add column if not exists current_location text;
+alter table candidates add column if not exists salary_expectation text;
+-- Soft delete ("Trash"): non-null = trashed (recoverable). All normal reads
+-- exclude these; a periodic sweep purges rows trashed longer than the window.
+alter table candidates add column if not exists deleted_at timestamptz;
+create index if not exists candidates_deleted_at_idx on candidates(deleted_at);
 
 -- ---------------------------------------------------------------------------
 --  notifications

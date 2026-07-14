@@ -36,7 +36,16 @@ async function processOne(row) {
     }
 
     const parsed = await AIService.analyzeResume(text, job, await resolveAiConfig());
-    await CandidateRepo.completeAnalysis(id, parsed);
+    // Applicants entered their own name/email/phone on the apply form — those are
+    // authoritative and must NOT be overwritten by whatever the résumé parser
+    // reads (a résumé can carry a different name). Manual recruiter uploads keep
+    // the AI-filled identity (they start from placeholders).
+    const isApplication = row.source === 'Application';
+    await CandidateRepo.completeAnalysis(id, parsed, {
+      preserveName: isApplication,
+      preserveEmail: isApplication,
+      preservePhone: isApplication && Boolean(row.phone),
+    });
     console.log('[worker] analyzed candidate', id);
   } catch (err) {
     console.error('[worker] analysis failed for', id, '-', err.message);
@@ -85,6 +94,14 @@ async function runRetention() {
         console.log(`[retention] purged ${removed.length} candidate(s) older than ${days} days`);
         for (const r of removed) await StorageService.deleteResume(r.resumeUrl).catch(() => {});
       }
+    }
+
+    // Auto-empty Trash: permanently purge candidates trashed > 30 days ago
+    // (independent of the configurable retention window).
+    const purgedTrash = await CandidateRepo.purgeTrashedOlderThan(30);
+    if (purgedTrash.length) {
+      console.log(`[retention] emptied ${purgedTrash.length} trashed candidate(s) older than 30 days`);
+      for (const r of purgedTrash) await StorageService.deleteResume(r.resumeUrl).catch(() => {});
     }
   } catch (err) {
     console.error('[retention] failed:', err.message);

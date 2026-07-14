@@ -7,6 +7,7 @@ const AIService = require('../services/aiService');
 const StorageService = require('../services/storageService');
 const EmailService = require('../services/emailService');
 const AuditRepo = require('../models/auditRepo');
+const ApplicantRepo = require('../models/applicantRepo');
 const CandidateMatcher = require('../services/candidateMatcher');
 
 // Resolve the AI provider/key configured through Settings so resume analysis
@@ -437,19 +438,111 @@ exports.exportCandidate = async (req, res) => {
 // @desc    Delete a candidate and all associated data (record, notes, resume file)
 // @route   DELETE /api/candidates/:id
 // @access  Private (Admin, Recruiter)
+// Soft delete → moves the candidate to Trash (recoverable). The résumé file is
+// kept so a restore is lossless; trashed rows are auto-purged after 30 days.
 exports.deleteCandidate = async (req, res) => {
+  try {
+    const trashed = await CandidateRepo.softDelete(req.params.id);
+    if (!trashed) {
+      return res.status(404).json({ success: false, message: 'Candidate not found' });
+    }
+    AuditRepo.log(req.user, 'candidate.delete', { entityType: 'candidate', entityId: trashed._id, summary: `Moved candidate ${trashed.name || trashed._id} to Trash` });
+    return res.json({ success: true, message: 'Candidate moved to Trash. You can restore it within 30 days.', data: { _id: trashed._id } });
+  } catch (error) {
+    console.error('Delete candidate error:', error);
+    return res.status(500).json({ success: false, message: 'Server error deleting candidate' });
+  }
+};
+
+// @desc    List trashed candidates
+// @route   GET /api/candidates/trash
+// @access  Private (Admin, Recruiter)
+exports.getTrash = async (req, res) => {
+  try {
+    const rows = await CandidateRepo.listTrash();
+    return res.json({ success: true, count: rows.length, data: rows });
+  } catch (error) {
+    console.error('Trash list error:', error);
+    return res.status(500).json({ success: false, message: 'Server error loading trash' });
+  }
+};
+
+// @desc    Restore a trashed candidate
+// @route   POST /api/candidates/:id/restore
+// @access  Private (Admin, Recruiter)
+exports.restoreCandidate = async (req, res) => {
+  try {
+    const restored = await CandidateRepo.restore(req.params.id);
+    if (!restored) {
+      return res.status(404).json({ success: false, message: 'Trashed candidate not found' });
+    }
+    AuditRepo.log(req.user, 'candidate.restore', { entityType: 'candidate', entityId: restored._id, summary: `Restored candidate ${restored.name || restored._id}` });
+    return res.json({ success: true, message: 'Candidate restored.', data: { _id: restored._id } });
+  } catch (error) {
+    console.error('Restore candidate error:', error);
+    return res.status(500).json({ success: false, message: 'Server error restoring candidate' });
+  }
+};
+
+// @desc    Permanently delete a candidate (from Trash) + its résumé file
+// @route   DELETE /api/candidates/:id/permanent
+// @access  Private (Admin, Recruiter)
+exports.permanentDeleteCandidate = async (req, res) => {
   try {
     const removed = await CandidateRepo.remove(req.params.id);
     if (!removed) {
       return res.status(404).json({ success: false, message: 'Candidate not found' });
     }
-    // Clear the stored resume file so nothing is orphaned (best-effort).
     await StorageService.deleteResume(removed.resumeUrl);
-    AuditRepo.log(req.user, 'candidate.delete', { entityType: 'candidate', entityId: removed._id, summary: `Deleted candidate ${removed.name || removed._id}` });
-    return res.json({ success: true, message: 'Candidate and resume deleted', data: { _id: removed._id } });
+    AuditRepo.log(req.user, 'candidate.delete_permanent', { entityType: 'candidate', entityId: removed._id, summary: `Permanently deleted candidate ${removed._id}` });
+    return res.json({ success: true, message: 'Candidate permanently deleted.', data: { _id: removed._id } });
   } catch (error) {
-    console.error('Delete candidate error:', error);
+    console.error('Permanent delete error:', error);
     return res.status(500).json({ success: false, message: 'Server error deleting candidate' });
+  }
+};
+
+// @desc    GDPR erasure — delete the WHOLE person: their portal account + every
+//          application (candidate row) with their email + all résumé files.
+// @route   DELETE /api/candidates/:id/person
+// @access  Private (Admin, Recruiter)
+exports.deletePerson = async (req, res) => {
+  try {
+    const cand = await CandidateRepo.getRaw(req.params.id);
+    if (!cand) {
+      return res.status(404).json({ success: false, message: 'Candidate not found' });
+    }
+    const email = String(cand.email || '').toLowerCase();
+    if (!email) {
+      return res.status(400).json({ success: false, message: 'This candidate has no email to identify the person.' });
+    }
+
+    // 1. Delete every application for this email + their résumé files.
+    const removedCandidates = await CandidateRepo.hardDeleteAllForEmail(email);
+    for (const r of removedCandidates) await StorageService.deleteResume(r.resumeUrl).catch(() => {});
+
+    // 2. Delete the portal account + its saved primary résumé, if any.
+    let account = null;
+    try {
+      account = await ApplicantRepo.deleteByEmail(email);
+      if (account?.resumeUrl) await StorageService.deleteResume(account.resumeUrl).catch(() => {});
+    } catch (accErr) {
+      console.error('GDPR account delete failed:', accErr.message);
+    }
+
+    AuditRepo.log(req.user, 'candidate.delete_person', {
+      entityType: 'candidate',
+      entityId: req.params.id,
+      summary: `GDPR erase: ${email} — ${removedCandidates.length} application(s)${account ? ' + portal account' : ''}`,
+    });
+    return res.json({
+      success: true,
+      message: `Erased all data for ${email}: ${removedCandidates.length} application(s)${account ? ' and their portal account' : ''}.`,
+      data: { email, applicationsDeleted: removedCandidates.length, accountDeleted: Boolean(account) },
+    });
+  } catch (error) {
+    console.error('GDPR delete person error:', error);
+    return res.status(500).json({ success: false, message: 'Server error deleting person' });
   }
 };
 

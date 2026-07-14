@@ -22,11 +22,14 @@ const toApi = (row) =>
     interviews: row.interviews || [],
     status: row.status,
     source: row.source || 'Manual',
+    currentLocation: row.current_location || '',
+    salaryExpectation: row.salary_expectation || '',
     screeningAnswers: row.screening_answers || [],
     analysisStatus: row.analysis_status || 'completed',
     analysisError: row.analysis_error || '',
     quizResult: row.quiz_result && typeof row.quiz_result === 'object' ? row.quiz_result : {},
     consentAt: row.consent_at || null,
+    deletedAt: row.deleted_at || null,
     jobId: row.job_id, // replaced with a populated object where noted
     aiAnalysis: row.ai_analysis || {},
     createdAt: row.created_at,
@@ -52,11 +55,14 @@ const toRow = (data = {}) => {
   if (data.interviews !== undefined) row.interviews = data.interviews || [];
   if (data.status !== undefined) row.status = data.status;
   if (data.source !== undefined) row.source = data.source;
+  if (data.currentLocation !== undefined) row.current_location = data.currentLocation;
+  if (data.salaryExpectation !== undefined) row.salary_expectation = data.salaryExpectation;
   if (data.screeningAnswers !== undefined) row.screening_answers = data.screeningAnswers || [];
   if (data.analysisStatus !== undefined) row.analysis_status = data.analysisStatus;
   if (data.analysisError !== undefined) row.analysis_error = data.analysisError;
   if (data.quizResult !== undefined) row.quiz_result = data.quizResult || {};
   if (data.consentAt !== undefined) row.consent_at = data.consentAt;
+  if (data.applicantId !== undefined) row.applicant_id = data.applicantId;
   if (data.jobId !== undefined) row.job_id = data.jobId;
   if (data.aiAnalysis !== undefined) row.ai_analysis = data.aiAnalysis || {};
   return row;
@@ -104,7 +110,7 @@ const CandidateRepo = {
   // to the DB; the fuzzier filters (minScore, skill, free-text search) are
   // applied in JS to reproduce the previous Mongo/regex behaviour exactly.
   async listApi({ jobId, status, minScore, skill, search } = {}) {
-    let q = getClient().from(TABLE).select('*');
+    let q = getClient().from(TABLE).select('*').is('deleted_at', null);
     if (jobId) q = q.eq('job_id', jobId);
     if (status) q = q.eq('status', status);
     q = q.order('created_at', { ascending: false });
@@ -143,7 +149,7 @@ const CandidateRepo = {
     // A repeat for the SAME job is a true duplicate; a repeat on a DIFFERENT job
     // just means the person also applied elsewhere — surface THAT (with the
     // other job's title) rather than badging it as a duplicate.
-    const { data: allApps } = await getClient().from(TABLE).select('id, email, job_id');
+    const { data: allApps } = await getClient().from(TABLE).select('id, email, job_id').is('deleted_at', null);
     const byEmail = {};
     (allApps || []).forEach((r) => {
       const e = String(r.email || '').toLowerCase();
@@ -179,7 +185,7 @@ const CandidateRepo = {
 
   // Single candidate with a richer populated job object.
   async findByIdApi(id) {
-    const { data, error } = await getClient().from(TABLE).select('*').eq('id', id).maybeSingle();
+    const { data, error } = await getClient().from(TABLE).select('*').eq('id', id).is('deleted_at', null).maybeSingle();
     if (error) throw error;
     if (!data) return null;
     const c = toApi(data);
@@ -208,6 +214,7 @@ const CandidateRepo = {
       .from(TABLE)
       .select('id')
       .eq('analysis_status', 'pending')
+      .is('deleted_at', null)
       .order('created_at', { ascending: true })
       .limit(1)
       .maybeSingle();
@@ -226,7 +233,7 @@ const CandidateRepo = {
   },
 
   // Store a successful analysis result and mark completed.
-  async completeAnalysis(id, parsed) {
+  async completeAnalysis(id, parsed, opts = {}) {
     const patch = {
       name: parsed.name || undefined,
       email: parsed.email || undefined,
@@ -249,6 +256,11 @@ const CandidateRepo = {
     const row = toRow(patch);
     if (!parsed.name) delete row.name;
     if (!parsed.email) delete row.email;
+    // NEVER overwrite the identity an applicant explicitly entered on the apply
+    // form (a résumé written for a different name must not rename the applicant).
+    if (opts.preserveName) delete row.name;
+    if (opts.preserveEmail) delete row.email;
+    if (opts.preservePhone) delete row.phone;
     row.updated_at = new Date().toISOString();
     const { error } = await getClient().from(TABLE).update(row).eq('id', id);
     if (error) throw error;
@@ -369,6 +381,7 @@ const CandidateRepo = {
     let q = getClient()
       .from(TABLE)
       .select('id, name, email, job_id, status, created_at')
+      .is('deleted_at', null)
       .ilike('email', email);
     if (excludeId) q = q.neq('id', excludeId);
     const { data, error } = await q;
@@ -397,6 +410,7 @@ const CandidateRepo = {
     const { data, error } = await getClient()
       .from(TABLE)
       .select('*')
+      .is('deleted_at', null)
       .ilike('email', e)
       .order('created_at', { ascending: false });
     if (error) throw error;
@@ -409,7 +423,7 @@ const CandidateRepo = {
   // applicant can never read another's record by guessing an id.
   async findForApplicant(id, email) {
     const e = String(email || '').toLowerCase();
-    const { data, error } = await getClient().from(TABLE).select('*').eq('id', id).maybeSingle();
+    const { data, error } = await getClient().from(TABLE).select('*').eq('id', id).is('deleted_at', null).maybeSingle();
     if (error) throw error;
     if (!data || String(data.email || '').toLowerCase() !== e) return null;
     const c = toApi(data);
@@ -418,7 +432,65 @@ const CandidateRepo = {
     return c;
   },
 
-  // Delete and return the removed candidate's resumeUrl for storage cleanup.
+  // Has this email already applied to this job? Used to block duplicate public
+  // applications to the same role.
+  async existsForJobEmail(jobId, email) {
+    const e = String(email || '').toLowerCase();
+    if (!jobId || !e) return false;
+    const { data, error } = await getClient()
+      .from(TABLE)
+      .select('id')
+      .eq('job_id', jobId)
+      .is('deleted_at', null)
+      .ilike('email', e)
+      .limit(1);
+    if (error) throw error;
+    return (data || []).length > 0;
+  },
+
+  // Soft delete → moves to Trash (recoverable). The résumé file is KEPT so a
+  // restore is lossless; a periodic sweep hard-purges old trashed rows.
+  async softDelete(id) {
+    const now = new Date().toISOString();
+    const { data, error } = await getClient()
+      .from(TABLE)
+      .update({ deleted_at: now, updated_at: now })
+      .eq('id', id)
+      .is('deleted_at', null)
+      .select('id, name')
+      .maybeSingle();
+    if (error) throw error;
+    return data ? { _id: data.id, name: data.name } : null;
+  },
+
+  // Restore a trashed candidate.
+  async restore(id) {
+    const { data, error } = await getClient()
+      .from(TABLE)
+      .update({ deleted_at: null, updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .not('deleted_at', 'is', null)
+      .select('id, name')
+      .maybeSingle();
+    if (error) throw error;
+    return data ? { _id: data.id, name: data.name } : null;
+  },
+
+  // Trash view — soft-deleted candidates, newest-trashed first, job populated.
+  async listTrash() {
+    const { data, error } = await getClient()
+      .from(TABLE)
+      .select('*')
+      .not('deleted_at', 'is', null)
+      .order('deleted_at', { ascending: false });
+    if (error) throw error;
+    const rows = (data || []).map(toApi);
+    const jobs = await jobLookup(rows.map((c) => c.jobId), ['title', 'department']);
+    return rows.map((c) => ({ ...c, jobId: jobs[String(c.jobId)] || { _id: c.jobId, title: 'Unknown', department: '' } }));
+  },
+
+  // Hard-delete (permanent) and return the removed candidate's resumeUrl for
+  // storage cleanup. Works on any row (trashed or not).
   async remove(id) {
     const { data, error } = await getClient()
       .from(TABLE)
@@ -430,11 +502,39 @@ const CandidateRepo = {
     return data ? { _id: data.id, resumeUrl: data.resume_url } : null;
   },
 
+  // GDPR "delete this person": hard-delete EVERY application for an email
+  // (trashed or not). Returns removed rows' résumé URLs for storage cleanup.
+  async hardDeleteAllForEmail(email) {
+    const e = String(email || '').toLowerCase();
+    if (!e) return [];
+    const { data, error } = await getClient()
+      .from(TABLE)
+      .delete()
+      .ilike('email', e)
+      .select('id, resume_url');
+    if (error) throw error;
+    return (data || []).map((r) => ({ _id: r.id, resumeUrl: r.resume_url }));
+  },
+
+  // Periodic sweep: permanently purge candidates trashed longer than `days`.
+  async purgeTrashedOlderThan(days) {
+    if (!days || days <= 0) return [];
+    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+    const { data, error } = await getClient()
+      .from(TABLE)
+      .delete()
+      .lt('deleted_at', cutoff)
+      .select('id, resume_url');
+    if (error) throw error;
+    return (data || []).map((r) => ({ _id: r.id, resumeUrl: r.resume_url }));
+  },
+
   // Minimal projection for dashboard aggregation.
   async allForStats() {
     const { data, error } = await getClient()
       .from(TABLE)
-      .select('id, job_id, status, skills, ai_analysis, created_at, updated_at');
+      .select('id, job_id, status, skills, ai_analysis, created_at, updated_at')
+      .is('deleted_at', null);
     if (error) throw error;
     return (data || []).map((r) => ({
       _id: r.id,
@@ -450,7 +550,8 @@ const CandidateRepo = {
   async count() {
     const { count, error } = await getClient()
       .from(TABLE)
-      .select('id', { count: 'exact', head: true });
+      .select('id', { count: 'exact', head: true })
+      .is('deleted_at', null);
     if (error) throw error;
     return count || 0;
   },

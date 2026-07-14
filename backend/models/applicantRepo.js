@@ -12,6 +12,11 @@ const toApi = (row) =>
     name: row.name,
     email: row.email,
     phone: row.phone || '',
+    linkedinUrl: row.linkedin_url || '',
+    portfolioUrl: row.portfolio_url || '',
+    bio: row.bio || '',
+    resumeUrl: row.resume_url || '',
+    location: row.location || '',
     createdAt: row.created_at,
   };
 
@@ -61,9 +66,54 @@ const ApplicantRepo = {
     return toApi(data);
   },
 
+  async findRawById(id) {
+    const { data, error } = await getClient().from(TABLE).select('*').eq('id', id).maybeSingle();
+    if (error) throw error;
+    return data || null;
+  },
+
+  // GDPR: delete the portal account for an email. Returns the removed account's
+  // saved primary résumé URL (if any) for storage cleanup, or null if no account.
+  async deleteByEmail(email) {
+    const e = normalizeEmail(email);
+    if (!e) return null;
+    const { data, error } = await getClient()
+      .from(TABLE)
+      .delete()
+      .eq('email', e)
+      .select('id, resume_url');
+    if (error) throw error;
+    return data && data.length ? { _id: data[0].id, resumeUrl: data[0].resume_url } : null;
+  },
+
   async matchPassword(plain, rawRow) {
     if (!rawRow || !rawRow.password) return false;
     return bcrypt.compare(plain, rawRow.password);
+  },
+
+  // Update self-service profile fields. Only defined keys are written.
+  async updateProfile(id, data = {}) {
+    const row = { updated_at: new Date().toISOString() };
+    if (data.name !== undefined) row.name = String(data.name).trim();
+    if (data.phone !== undefined) row.phone = data.phone;
+    if (data.linkedinUrl !== undefined) row.linkedin_url = data.linkedinUrl;
+    if (data.portfolioUrl !== undefined) row.portfolio_url = data.portfolioUrl;
+    if (data.bio !== undefined) row.bio = data.bio;
+    if (data.resumeUrl !== undefined) row.resume_url = data.resumeUrl;
+    if (data.location !== undefined) row.location = data.location;
+    const { data: updated, error } = await getClient()
+      .from(TABLE).update(row).eq('id', id).select('*').maybeSingle();
+    if (error) throw error;
+    return toApi(updated);
+  },
+
+  async updateResume(id, resumeUrl) {
+    const { data, error } = await getClient()
+      .from(TABLE)
+      .update({ resume_url: resumeUrl, updated_at: new Date().toISOString() })
+      .eq('id', id).select('*').maybeSingle();
+    if (error) throw error;
+    return toApi(data);
   },
 
   // --- Password reset (same pattern as userRepo) -------------------------

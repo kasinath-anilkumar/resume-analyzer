@@ -36,6 +36,9 @@ const Candidates = () => {
   const [minScore, setMinScore] = useState('');
   const [selectedSkill, setSelectedSkill] = useState('');
   const [selectedVerdict, setSelectedVerdict] = useState(''); // AI screening verdict (client-side)
+  const [selectedLocation, setSelectedLocation] = useState(''); // current location (client-side)
+  const [minSalary, setMinSalary] = useState(''); // salary-expectation range (client-side)
+  const [maxSalary, setMaxSalary] = useState('');
 
   // UI state
   const [selectedCandidateIds, setSelectedCandidateIds] = useState([]);
@@ -118,7 +121,7 @@ const Candidates = () => {
   const handleDelete = async (cand) => {
     if (
       !window.confirm(
-        `Delete ${cand.name}? This permanently removes the candidate, their AI analysis, notes and the stored resume file. This cannot be undone.`
+        `Move ${cand.name} to Trash? You can restore them from Trash within 30 days, after which they're permanently deleted.`
       )
     )
       return;
@@ -138,9 +141,30 @@ const Candidates = () => {
   };
 
   // Client-side AI verdict view filter (verdict lives in aiAnalysis jsonb).
-  const displayed = selectedVerdict
-    ? candidates.filter((c) => (c.aiAnalysis?.screeningVerdict || '') === selectedVerdict)
-    : candidates;
+  // Pull the first number out of a free-text salary expectation ("₹30,000 / month",
+  // "30000-40000", "Negotiable" -> null) so it can be range-filtered.
+  const parseSalary = (text) => {
+    if (!text) return null;
+    const m = String(text).replace(/[,\s]/g, '').match(/\d+/);
+    return m ? parseInt(m[0], 10) : null;
+  };
+
+  // Distinct locations present in the fetched list (built from the full set so the
+  // dropdown stays complete regardless of the location filter).
+  const locations = [...new Set(candidates.map((c) => (c.currentLocation || '').trim()).filter(Boolean))].sort();
+
+  // Client-side filters (verdict / location / salary all live on the candidate).
+  const displayed = candidates.filter((c) => {
+    if (selectedVerdict && (c.aiAnalysis?.screeningVerdict || '') !== selectedVerdict) return false;
+    if (selectedLocation && (c.currentLocation || '').trim() !== selectedLocation) return false;
+    if (minSalary || maxSalary) {
+      const sal = parseSalary(c.salaryExpectation);
+      if (sal == null) return false; // no numeric salary → excluded while filtering by salary
+      if (minSalary && sal < parseInt(minSalary, 10)) return false;
+      if (maxSalary && sal > parseInt(maxSalary, 10)) return false;
+    }
+    return true;
+  });
 
   // Colour for the AI verdict badge.
   const verdictBadge = (v) => {
@@ -162,7 +186,7 @@ const Candidates = () => {
   // Export the currently filtered candidates to a CSV file (client-side).
   const exportCsv = () => {
     if (!displayed.length) return;
-    const headers = ['Name', 'Email', 'Phone', 'Target Role', 'Department', 'Status', 'AI Verdict', 'Overall Score', 'Match %', 'Skills', 'Applied'];
+    const headers = ['Name', 'Email', 'Phone', 'Location', 'Salary Expectation', 'Target Role', 'Department', 'Status', 'AI Verdict', 'Overall Score', 'Match %', 'Skills', 'Applied'];
     const esc = (v) => {
       const s = String(v ?? '');
       return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
@@ -172,6 +196,8 @@ const Candidates = () => {
         c.name,
         c.email,
         c.phone || '',
+        c.currentLocation || '',
+        c.salaryExpectation || '',
         c.jobId?.title || '',
         c.jobId?.department || '',
         c.status,
@@ -205,6 +231,14 @@ const Candidates = () => {
           <p className="text-xs text-slate-500">Search applicant profiles, evaluate AI scores, and initiate talent comparisons.</p>
         </div>
         <div className="flex items-center gap-2">
+          <Link
+            to="/trash"
+            title="View deleted candidates (Trash)"
+            className="flex items-center space-x-1.5 px-4 py-2.5 border border-slate-200 dark:border-darkBorder hover:bg-slate-50 dark:hover:bg-slate-800/50 text-slate-600 dark:text-slate-300 rounded-xl text-xs font-semibold transition"
+          >
+            <Trash2 size={15} />
+            <span>Trash</span>
+          </Link>
           <button
             onClick={exportCsv}
             disabled={!candidates.length}
@@ -302,6 +336,42 @@ const Candidates = () => {
             <option value="Weak Fit">Weak Fit</option>
             <option value="Not a Fit">Not a Fit</option>
           </select>
+        </div>
+
+        {/* Location */}
+        <div>
+          <select
+            value={selectedLocation}
+            onChange={(e) => setSelectedLocation(e.target.value)}
+            title="Filter by the candidate's current location"
+            className="w-full h-10 px-3 border border-slate-200 dark:border-darkBorder rounded-xl bg-white dark:bg-slate-900 text-xs text-slate-700 dark:text-slate-300 focus:outline-none"
+          >
+            <option value="">All Locations</option>
+            {locations.map((loc) => (
+              <option key={loc} value={loc}>{loc}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Salary expectation range */}
+        <div className="flex items-center gap-1.5 lg:col-span-2" title="Filter by expected salary">
+          <input
+            type="number"
+            min="0"
+            value={minSalary}
+            onChange={(e) => setMinSalary(e.target.value)}
+            placeholder="Min salary"
+            className="w-full h-10 px-3 border border-slate-200 dark:border-darkBorder rounded-xl bg-slate-50/50 dark:bg-slate-900 text-xs text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
+          />
+          <span className="text-slate-300 dark:text-slate-600 text-xs">–</span>
+          <input
+            type="number"
+            min="0"
+            value={maxSalary}
+            onChange={(e) => setMaxSalary(e.target.value)}
+            placeholder="Max salary"
+            className="w-full h-10 px-3 border border-slate-200 dark:border-darkBorder rounded-xl bg-slate-50/50 dark:bg-slate-900 text-xs text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
+          />
         </div>
       </div>
 

@@ -2,6 +2,8 @@ const express = require('express');
 const router = express.Router();
 const {
   loginUser,
+  signin,
+  unifiedForgot,
   forgotPassword,
   resetPassword,
   changePassword,
@@ -14,10 +16,13 @@ const {
 const { protect, authorize } = require('../middleware/auth');
 const { authLimiter } = require('../middleware/rateLimit');
 
-// Public self-registration is disabled — accounts are created by an Admin via
-// the User Management panel (POST /api/auth/users).
+// Public self-registration for STAFF is disabled — recruiter accounts are
+// created by an Admin (POST /api/auth/users). Applicants self-register via
+// /api/portal/register.
 // Rate-limit the unauthenticated credential endpoints to slow brute-forcing.
-router.post('/login', authLimiter, loginUser);
+router.post('/signin', authLimiter, signin); // unified: staff OR applicant
+router.post('/forgot', authLimiter, unifiedForgot); // unified: staff OR applicant
+router.post('/login', authLimiter, loginUser); // staff-only (kept for compatibility)
 router.post('/forgot-password', authLimiter, forgotPassword);
 router.post('/reset-password', authLimiter, resetPassword);
 router.get('/me', protect, getMe);

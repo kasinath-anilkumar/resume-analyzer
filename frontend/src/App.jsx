@@ -10,15 +10,16 @@ import ResetPassword from './pages/ResetPassword';
 import Careers from './pages/Careers';
 import CareerApply from './pages/CareerApply';
 import { ApplicantAuthProvider, useApplicantAuth } from './context/ApplicantAuthContext';
-import PortalLogin from './pages/portal/PortalLogin';
 import PortalRegister from './pages/portal/PortalRegister';
 import PortalReset from './pages/portal/PortalReset';
 import PortalDashboard from './pages/portal/PortalDashboard';
 import PortalApplicationDetail from './pages/portal/PortalApplicationDetail';
+import PortalProfile from './pages/portal/PortalProfile';
 import Dashboard from './pages/Dashboard';
 import Jobs from './pages/Jobs';
 import JobForm from './pages/JobForm';
 import Candidates from './pages/Candidates';
+import Trash from './pages/Trash';
 import Shortlist from './pages/Shortlist';
 import CandidateDetails from './pages/CandidateDetails';
 import Upload from './pages/Upload';
@@ -60,7 +61,7 @@ const RequirePortalAuth = ({ children }) => {
       </div>
     );
   }
-  if (!applicant) return <Navigate to="/portal/login" replace />;
+  if (!applicant) return <Navigate to="/login" replace />;
   return children;
 };
 
@@ -79,12 +80,13 @@ function App() {
             <Route path="/careers/:id" element={<CareerApply />} />
 
             {/* Candidate-facing careers portal */}
-            <Route path="/portal/login" element={<PortalLogin />} />
+            <Route path="/portal/login" element={<Navigate to="/login" replace />} />
             <Route path="/portal/register" element={<PortalRegister />} />
             <Route path="/portal/reset-password" element={<PortalReset />} />
             <Route path="/portal" element={<Navigate to="/portal/dashboard" replace />} />
             <Route path="/portal/dashboard" element={<RequirePortalAuth><PortalDashboard /></RequirePortalAuth>} />
             <Route path="/portal/applications/:id" element={<RequirePortalAuth><PortalApplicationDetail /></RequirePortalAuth>} />
+            <Route path="/portal/profile" element={<RequirePortalAuth><PortalProfile /></RequirePortalAuth>} />
 
             <Route
               path="/"
@@ -100,6 +102,7 @@ function App() {
               <Route path="jobs/:id/edit" element={<JobForm />} />
               <Route path="upload" element={<Upload />} />
               <Route path="candidates" element={<Candidates />} />
+              <Route path="trash" element={<Trash />} />
               <Route path="shortlist" element={<Shortlist />} />
               <Route path="candidates/:id" element={<CandidateDetails />} />
               <Route path="pipeline" element={<Pipeline />} />

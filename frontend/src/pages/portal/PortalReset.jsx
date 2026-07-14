@@ -23,7 +23,7 @@ const PortalReset = () => {
     setBusy(true);
     const res = await resetPassword({ token, email, password: form.password });
     setBusy(false);
-    if (res.success) { setDone(true); setTimeout(() => navigate('/portal/login', { replace: true }), 2500); }
+    if (res.success) { setDone(true); setTimeout(() => navigate('/login', { replace: true }), 2500); }
     else setError(res.message);
   };
 
@@ -39,7 +39,7 @@ const PortalReset = () => {
             <div className="text-center text-xs text-slate-500">
               <AlertCircle className="mx-auto text-[#c5a880] mb-3" size={28} />
               This reset link is missing its token. Request a new one from the sign-in page.
-              <div className="mt-5"><Link to="/portal/login" className="text-[10px] uppercase tracking-widest text-[#c5a880] font-semibold hover:underline">Back to sign in</Link></div>
+              <div className="mt-5"><Link to="/login" className="text-[10px] uppercase tracking-widest text-[#c5a880] font-semibold hover:underline">Back to sign in</Link></div>
             </div>
           ) : done ? (
             <div className="text-center py-4">

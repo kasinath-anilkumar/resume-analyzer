@@ -1,23 +1,37 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import api from '../services/api';
+import portalApi from '../services/portalApi';
+import { useApplicantAuth } from '../context/ApplicantAuthContext';
+import PhoneInput, { isValidPhoneNumber } from 'react-phone-number-input';
+import { CITY_SUGGESTIONS } from '../data/cities';
 import {
   Briefcase, MapPin, Clock, ChevronLeft, Loader2, UploadCloud,
-  CheckCircle2, AlertCircle, FileText, ClipboardList, AlertTriangle
+  CheckCircle2, AlertCircle, FileText, ClipboardList, AlertTriangle, ArrowRight,
+  ChevronDown
 } from 'lucide-react';
 
 const fmtTime = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 
 const ACCEPT = '.pdf,.doc,.docx,.txt,.rtf,image/*';
+const MAX_RESUME_BYTES = 10 * 1024 * 1024; // 10 MB — matches the server limit
 
 const CareerApply = () => {
   const { id } = useParams();
+  const { applicant } = useApplicantAuth();
   const [job, setJob] = useState(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  const [appliedAppId, setAppliedAppId] = useState(null); // set if a logged-in applicant already applied to THIS job
+  const [hasPrimaryResume, setHasPrimaryResume] = useState(false); // logged-in applicant has a saved résumé
+  const [usePrimaryResume, setUsePrimaryResume] = useState(true);
+  const [primaryResumeName, setPrimaryResumeName] = useState('');
 
+  const [showForm, setShowForm] = useState(false); // Toggle to show application wizard
+  const [descExpanded, setDescExpanded] = useState(false);
+  const [skillsExpanded, setSkillsExpanded] = useState(false);
   const [currentStep, setCurrentStep] = useState(1);
-  const [form, setForm] = useState({ name: '', email: '', phone: '' });
+  const [form, setForm] = useState({ name: '', email: '', phone: '', currentLocation: '', salaryExpectation: '' });
   const [answers, setAnswers] = useState([]); // [{question, answer}]
   const [file, setFile] = useState(null);
   const [submitting, setSubmitting] = useState(false);
@@ -57,6 +71,38 @@ const CareerApply = () => {
       .finally(() => setLoading(false));
   }, [id]);
 
+  // For a logged-in applicant: detect a prior application to THIS role, and
+  // whether they have a reusable primary résumé on file.
+  useEffect(() => {
+    if (!applicant) { setAppliedAppId(null); setHasPrimaryResume(false); return; }
+    portalApi.get('/applications')
+      .then((res) => {
+        if (res.data.success) {
+          const found = res.data.data.find((a) => a.job?._id === id);
+          setAppliedAppId(found ? found._id : null);
+        }
+      })
+      .catch(() => { });
+    portalApi.get('/me')
+      .then((res) => {
+        if (!res.data.success) { setHasPrimaryResume(false); return; }
+        const me = res.data;
+        setHasPrimaryResume(Boolean(me.resumeUrl));
+        if (me.resumeUrl) setPrimaryResumeName('your saved résumé');
+        // Prefill from the account so the application uses the applicant's OWN
+        // identity by default (and their entered name is preserved server-side,
+        // not replaced by whatever name the résumé carries).
+        setForm((f) => ({
+          ...f,
+          name: f.name || me.name || '',
+          email: f.email || me.email || '',
+          phone: f.phone || me.phone || '',
+          currentLocation: f.currentLocation || me.location || '',
+        }));
+      })
+      .catch(() => { });
+  }, [applicant, id]);
+
   // Countdown timer — locks the quiz (not the whole form) when it hits zero.
   useEffect(() => {
     if (secondsLeft == null || quizLocked || done) return undefined;
@@ -73,12 +119,15 @@ const CareerApply = () => {
     return () => document.removeEventListener('visibilitychange', onHide);
   }, [hasQuiz, done]);
 
+  // Phone is optional, but if provided it must be a valid number for its country.
+  const phoneValid = !form.phone || isValidPhoneNumber(form.phone);
+
   const canGoNext = () => {
     if (currentStep === 1) {
-      return form.name.trim() !== '' && form.email.trim() !== '' && form.email.includes('@');
+      return form.name.trim() !== '' && form.email.trim() !== '' && form.email.includes('@') && phoneValid;
     }
     if (currentStep === 2) {
-      return file !== null;
+      return file !== null || (usePrimaryResume && hasPrimaryResume);
     }
     return true;
   };
@@ -87,14 +136,19 @@ const CareerApply = () => {
     e.preventDefault();
     setError('');
     if (!form.name || !form.email) { setError('Please provide your name and email.'); return; }
-    if (!file) { setError('Please attach your résumé.'); return; }
+    if (form.phone && !isValidPhoneNumber(form.phone)) { setError('Please enter a valid phone number.'); return; }
+    const reuseSaved = usePrimaryResume && hasPrimaryResume && !file;
+    if (!file && !reuseSaved) { setError('Please attach your résumé.'); return; }
 
     const fd = new FormData();
-    fd.append('resume', file);
+    if (file) fd.append('resume', file);
+    if (reuseSaved) fd.append('usePrimaryResume', 'true');
     fd.append('jobId', id);
     fd.append('name', form.name);
     fd.append('email', form.email);
     fd.append('phone', form.phone);
+    fd.append('currentLocation', form.currentLocation);
+    fd.append('salaryExpectation', form.salaryExpectation);
     fd.append('screeningAnswers', JSON.stringify(answers.filter((a) => a.answer.trim())));
 
     if (hasQuiz) {
@@ -107,7 +161,12 @@ const CareerApply = () => {
 
     setSubmitting(true);
     try {
-      const res = await api.post('/public/apply', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      // Attach the applicant token (if signed in) so the server can link the
+      // application to the account and honor "use my saved résumé".
+      const headers = { 'Content-Type': 'multipart/form-data' };
+      const at = localStorage.getItem('applicant_token');
+      if (at) headers.Authorization = `Bearer ${at}`;
+      const res = await api.post('/public/apply', fd, { headers });
       if (res.data.success) setDone(res.data.message);
       else setError(res.data.message || 'Could not submit your application.');
     } catch (err) {
@@ -115,6 +174,18 @@ const CareerApply = () => {
     } finally {
       setSubmitting(false);
     }
+  };
+
+  // Reject oversized résumés in the browser BEFORE uploading (saves bandwidth
+  // and keeps big files off the server). The server still enforces its own limit.
+  const onPickResume = (f) => {
+    if (!f) { setFile(null); return; }
+    if (f.size > MAX_RESUME_BYTES) {
+      setError(`Résumé is too large (${(f.size / 1024 / 1024).toFixed(1)} MB). Please upload a file under 10 MB.`);
+      return;
+    }
+    setError('');
+    setFile(f);
   };
 
   const input = 'w-full h-11 px-4 border text-xs tracking-wide luxury-input focus:outline-none';
@@ -137,60 +208,71 @@ const CareerApply = () => {
     );
   }
 
+  const previewLength = Math.max(150, Math.floor(job.description.length * 0.25));
+  const descriptionPreview = job.description.slice(0, previewLength);
+  const hasMoreDescription = job.description.length > previewLength;
+
   return (
     <div className="min-h-screen bg-luxury-gradient text-[#1c1c1c] dark:text-[#f5efe9] font-luxury flex flex-col justify-between">
       <div>
         {/* Brand Header */}
         <header className="border-b luxury-border-thin bg-white/40 dark:bg-black/20 backdrop-blur-sm sticky top-0 z-50">
-          <div className="max-w-7xl mx-auto px-5 py-4 flex items-center justify-between">
+          <div className="max-w-5xl mx-auto px-5 py-4 flex items-center justify-between">
             <Link to="/careers" className="flex items-center space-x-3">
-              <img 
-                src="https://parakkatjewels.com/cdn/shop/files/Logo.png?v=1711363419&width=96" 
-                alt="Parakkat Jewels Logo" 
-                className="h-10 w-auto object-contain brightness-100 dark:brightness-95 dark:contrast-125" 
+              <img
+                src="https://parakkatjewels.com/cdn/shop/files/Logo.png?v=1711363419&width=96"
+                alt="Parakkat Jewels Logo"
+                className="h-10 w-auto object-contain brightness-100 dark:brightness-95 dark:contrast-125"
               />
               <span className="font-luxury font-medium tracking-[0.2em] text-xs uppercase hidden sm:inline-block border-l luxury-border-thin pl-3 text-[#1c1c1c] dark:text-[#e2d1c5]">
                 Careers
               </span>
             </Link>
-            <span className="text-[9px] tracking-[0.15em] text-[#c5a880] uppercase font-semibold">
-              Layered with Pure Gold
-            </span>
+            <div className="flex items-center space-x-3.5">
+              <Link to="/portal/dashboard" className="text-[9px] tracking-[0.15em] text-[#c5a880] hover:text-[#1c1c1c] dark:hover:text-white uppercase font-semibold transition-colors duration-200 hidden sm:inline-block">
+                My Applications
+              </Link>
+              <span className="text-slate-200 dark:text-slate-800 hidden sm:inline-block">|</span>
+              <Link to="/login" className="text-[9px] tracking-[0.15em] text-[#c5a880] hover:text-[#c5a880] uppercase font-semibold transition-colors duration-200">
+                Login
+              </Link>
+            </div>
           </div>
         </header>
 
         {/* Content Area */}
-        <div className="max-w-7xl mx-auto px-5 py-10">
-          <Link to="/careers" className="inline-flex items-center text-[10px] font-semibold uppercase tracking-widest text-slate-500 hover:text-[#c5a880] mb-6 transition-colors duration-200">
+        <div className="max-w-5xl mx-auto px-5 py-5">
+          {/* <Link to="/careers" className="inline-flex items-center text-[10px] font-semibold uppercase tracking-widest text-slate-500 hover:text-[#c5a880] mb-4 transition-colors duration-200">
             <ChevronLeft size={14} className="mr-1 text-[#c5a880]" /> All positions
-          </Link>
+          </Link> */}
 
-          <div className="flex flex-col lg:flex-row gap-10 items-start">
-            {/* Left Panel: Job Specs (Sticky on desktop) */}
-            <div className="w-full lg:w-[45%] lg:sticky lg:top-24">
-              <div className="bg-white/80 dark:bg-[#151210]/80 border luxury-border-thin rounded-none shadow-sm overflow-hidden w-full">
-                {/* Header Banner */}
-                <div className="bg-[#1c1c1c] text-white p-8 border-b-2 luxury-border-gold">
-                  <span className="text-[9px] font-bold text-[#c5a880] uppercase tracking-[0.25em]">{job.department}</span>
-                  <h1 className="text-xl sm:text-2xl font-light uppercase tracking-widest text-white mt-3 leading-tight">
-                    {job.title}
-                  </h1>
-                  <div className="w-12 h-[1px] bg-[#c5a880] my-4"></div>
-                  <div className="flex flex-wrap gap-x-6 gap-y-2 text-[10px] tracking-widest uppercase text-[#e2d1c5]">
-                    <span className="flex items-center gap-1.5"><MapPin size={11} className="text-[#c5a880]" /> {job.location}</span>
-                    <span className="flex items-center gap-1.5"><Clock size={11} className="text-[#c5a880]" /> {job.employmentType}</span>
-                    {job.experience && <span className="flex items-center gap-1.5"><Briefcase size={11} className="text-[#c5a880]" /> {job.experience}</span>}
-                    {job.salaryRange && <span className="flex items-center gap-1.5 font-semibold text-[#c5a880]">{job.salaryRange}</span>}
-                  </div>
+          {!showForm ? (
+            /* 1. Spacious Central Role Description View */
+            <div className="max-w-5xl mx-auto bg-white/80 dark:bg-[#151210]/80 border luxury-border-thin rounded-none shadow-sm overflow-hidden w-full animate-fadeIn">
+              {/* Header Banner */}
+              <div className="bg-[#1c1c1c] text-white p-6 border-b-2 luxury-border-gold">
+                <span className="text-[9px] font-bold text-[#c5a880] uppercase tracking-[0.25em]">{job.department}</span>
+                <h1 className="text-xl sm:text-2xl font-light uppercase tracking-widest text-white mt-3 leading-tight">
+                  {job.title}
+                </h1>
+                <div className="w-12 h-[1px] bg-[#c5a880] my-4"></div>
+                <div className="flex flex-wrap gap-x-6 gap-y-2 text-[10px] tracking-widest uppercase text-[#e2d1c5]">
+                  <span className="flex items-center gap-1.5"><MapPin size={11} className="text-[#c5a880]" /> {job.location}</span>
+                  <span className="flex items-center gap-1.5"><Clock size={11} className="text-[#c5a880]" /> {job.employmentType}</span>
+                  {job.experience && <span className="flex items-center gap-1.5"><Briefcase size={11} className="text-[#c5a880]" /> {job.experience}</span>}
+                  {job.salaryRange && <span className="flex items-center gap-1.5 font-semibold text-[#c5a880]">{job.salaryRange}</span>}
                 </div>
+              </div>
 
-                {/* Body Content */}
-                <div className="p-8 space-y-6">
+              {/* Body Content */}
+              <div className="p-6 space-y-6">
+                {/* Desktop View: Flat list */}
+                <div className="hidden lg:block space-y-6">
                   <div>
                     <h3 className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#1c1c1c] dark:text-[#f5efe9] border-b luxury-border-thin pb-2 mb-4">
                       Role Description
                     </h3>
-                    <p className="text-[13px] text-slate-600 dark:text-slate-400 leading-loose tracking-wide whitespace-pre-line font-light">
+                    <p className="text-[14px] text-black dark:text-slate-400 leading-loose tracking-wide whitespace-pre-line font-light">
                       {job.description}
                     </p>
                   </div>
@@ -210,13 +292,84 @@ const CareerApply = () => {
                     </div>
                   )}
                 </div>
+
+                {/* Mobile View: Accordions */}
+                <div className="lg:hidden space-y-4 w-full">
+                  {/* Description Read More */}
+                  <div className="border luxury-border-thin p-4">
+                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-[0.2em] block mb-3">Role Description</span>
+                    <p className="text-[13px] text-slate-600 dark:text-slate-400 leading-loose tracking-wide whitespace-pre-line font-light">
+                      {descExpanded ? job.description : `${descriptionPreview}...`}
+                    </p>
+                    {hasMoreDescription && (
+                      <button
+                        type="button"
+                        onClick={() => setDescExpanded(!descExpanded)}
+                        className="text-[9px] font-bold text-[#c5a880] uppercase tracking-widest mt-3 hover:underline inline-flex items-center gap-1 focus:outline-none"
+                      >
+                        {descExpanded ? 'Show Less' : 'Read Full Description'}
+                        <ChevronDown size={11} className={`transform transition-transform ${descExpanded ? 'rotate-180' : ''}`} />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Skills Accordion */}
+                  {job.requiredSkills?.length > 0 && (
+                    <div className="border luxury-border-thin">
+                      <button
+                        type="button"
+                        onClick={() => setSkillsExpanded(!skillsExpanded)}
+                        className="w-full flex items-center justify-between p-4 text-[10px] font-bold uppercase tracking-[0.2em] text-[#1c1c1c] dark:text-[#f5efe9] bg-slate-50 dark:bg-black/20"
+                      >
+                        <span>Required Skills</span>
+                        <ChevronDown size={14} className={`transform transition-transform duration-200 ${skillsExpanded ? 'rotate-180 text-[#c5a880]' : 'text-slate-400'}`} />
+                      </button>
+                      {skillsExpanded && (
+                        <div className="p-4 border-t luxury-border-thin flex flex-wrap gap-2 animate-fadeIn">
+                          {job.requiredSkills.map((s, i) => (
+                            <span key={i} className="text-[9px] font-medium uppercase tracking-wider px-3 py-1 bg-[#c5a880]/10 text-[#c5a880] border border-[#c5a880]/20 rounded-none">
+                              {s}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Apply Button CTA — or an "already applied" notice */}
+                <div className="pt-6 border-t luxury-border-thin flex justify-center">
+                  {appliedAppId ? (
+                    <div className="text-center space-y-3">
+                      <p className="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-[0.25em]">
+                        You have already applied for this position
+                      </p>
+                      <Link
+                        to={`/portal/applications/${appliedAppId}`}
+                        className="px-10 h-12 luxury-button-primary hover:bg-[#c5a880] transition duration-300 rounded-none cursor-pointer flex items-center justify-center gap-2"
+                      >
+                        <span className="text-xs sm:text-sm">VIEW YOUR APPLICATION</span>
+                        <ArrowRight size={14} />
+                      </Link>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setShowForm(true)}
+                      className="px-10 h-12 luxury-button-primary hover:bg-[#c5a880] transition duration-300 rounded-none cursor-pointer flex items-center gap-2"
+                    >
+                      <span className="text-xs sm:text-sm">APPLY FOR THIS ROLE</span>
+                      <ArrowRight size={14} />
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
-
-            {/* Right Panel: Application Form Wizard */}
-            <div className="w-full lg:w-[55%]">
+          ) : (
+            /* 2. Spacious Split-Screen Interactive Apply Layout */
+            /* 2. Spacious Centered Application Form Wizard (Job details hidden) */
+            <div className="w-full max-w-2xl mx-auto">
               {done ? (
-                <div className="bg-white/80 dark:bg-[#151210]/80 border border-emerald-500/20 rounded-none p-8 text-center shadow-sm">
+                <div className="bg-white/80 dark:bg-[#151210]/80 border border-emerald-500/20 rounded-none p-6 text-center shadow-sm">
                   <CheckCircle2 className="mx-auto text-emerald-500 mb-4" size={36} />
                   <h3 className="text-base font-semibold uppercase tracking-wider text-[#1c1c1c] dark:text-[#f5efe9]">
                     Application received
@@ -224,27 +377,18 @@ const CareerApply = () => {
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 max-w-md mx-auto tracking-wide leading-relaxed">
                     {done}
                   </p>
-                  <div className="mt-6 pt-6 border-t luxury-border-thin max-w-sm mx-auto">
-                    <p className="text-[10px] tracking-widest uppercase text-slate-400 mb-3">Want to follow your application?</p>
-                    <Link
-                      to={`/portal/register?email=${encodeURIComponent(form.email)}`}
-                      className="inline-flex items-center justify-center gap-2 px-6 h-11 bg-[#1c1c1c] text-white hover:bg-[#c5a880] hover:text-[#1c1c1c] text-[10px] font-medium tracking-widest uppercase transition duration-300"
-                    >
-                      Create an account to track it
-                    </Link>
-                    <Link to="/careers" className="block text-[10px] font-semibold uppercase tracking-widest text-[#c5a880] mt-4 hover:underline">
-                      Browse more positions
-                    </Link>
-                  </div>
+                  <Link to="/careers" className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-widest text-[#c5a880] mt-6 hover:underline">
+                    Browse more positions
+                  </Link>
                 </div>
               ) : (
-                <div className="bg-white/80 dark:bg-[#151210]/80 border luxury-border-thin rounded-none p-8 shadow-sm">
+                <div className="bg-white/80 dark:bg-[#151210]/80 border luxury-border-thin rounded-none p-6 shadow-sm">
                   {/* Wizard Header Progress Bar */}
                   <div className="flex items-center justify-between border-b luxury-border-thin pb-4 mb-6">
                     <h3 className="text-xs font-bold uppercase tracking-[0.2em] text-[#1c1c1c] dark:text-[#f5efe9]">
                       Apply for this role
                     </h3>
-                    
+
                     {/* Step indicators */}
                     <div className="flex items-center gap-3 md:gap-5 text-[9px] font-bold tracking-widest text-slate-400">
                       {steps.map((step, idx) => (
@@ -277,9 +421,29 @@ const CareerApply = () => {
                             <label className="text-[9px] font-semibold tracking-widest text-slate-400 uppercase">Email Address *</label>
                             <input type="email" required value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} placeholder="JANE@EMAIL.COM" className={input} />
                           </div>
-                          <div className="space-y-2 sm:col-span-2">
+                          <div className="space-y-2">
                             <label className="text-[9px] font-semibold tracking-widest text-slate-400 uppercase">Phone Number</label>
-                            <input value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} placeholder="+1 555 000 1234" className={input} />
+                            <PhoneInput
+                              defaultCountry="IN"
+                              value={form.phone || undefined}
+                              onChange={(v) => setForm((f) => ({ ...f, phone: v || '' }))}
+                              className={`luxury-phone ${form.phone && !phoneValid ? 'luxury-phone-error' : ''}`}
+                              placeholder="90000 00000"
+                            />
+                            {form.phone && !phoneValid && (
+                              <span className="text-[9px] text-rose-500 uppercase tracking-widest">Enter a valid phone number</span>
+                            )}
+                          </div>
+                          <div className="space-y-2">
+                            <label className="text-[9px] font-semibold tracking-widest text-slate-400 uppercase">Current Location</label>
+                            <input list="apply-city-suggestions" value={form.currentLocation} onChange={(e) => setForm((f) => ({ ...f, currentLocation: e.target.value }))} placeholder="KOCHI, KERALA" className={input} />
+                            <datalist id="apply-city-suggestions">
+                              {CITY_SUGGESTIONS.map((c) => <option key={c} value={c} />)}
+                            </datalist>
+                          </div>
+                          <div className="space-y-2 sm:col-span-2">
+                            <label className="text-[9px] font-semibold tracking-widest text-slate-400 uppercase">Salary Expectation</label>
+                            <input value={form.salaryExpectation} onChange={(e) => setForm((f) => ({ ...f, salaryExpectation: e.target.value }))} placeholder="e.g. ₹30,000 / month or Negotiable" className={input} />
                           </div>
                         </div>
                       </div>
@@ -291,16 +455,27 @@ const CareerApply = () => {
                         {/* Résumé upload */}
                         <div className="space-y-2">
                           <label className="text-[9px] font-semibold tracking-widest text-slate-400 uppercase">Résumé Attachment *</label>
-                          <label className={`flex flex-col items-center justify-center p-8 border-2 border-dashed rounded-none cursor-pointer transition-all duration-300 ${file ? 'border-emerald-500 bg-emerald-500/5' : 'border-slate-300 dark:border-slate-800 hover:border-[#c5a880]'}`}>
-                            {file ? <FileText size={24} className="text-emerald-500 mb-2" /> : <UploadCloud size={24} className="text-[#c5a880] mb-2" />}
-                            <span className="text-xs text-slate-600 dark:text-slate-300 truncate max-w-full font-medium tracking-wide">
-                              {file ? file.name : 'ATTACH YOUR RÉSUMÉ'}
-                            </span>
-                            <span className="text-[9px] text-slate-400 uppercase tracking-widest mt-1">
-                              PDF, DOC, DOCX, TXT, RTF, IMAGE (MAX 10MB)
-                            </span>
-                            <input type="file" accept={ACCEPT} className="hidden" onChange={(e) => setFile(e.target.files?.[0] || null)} />
-                          </label>
+
+                          {/* Logged-in applicant with a saved résumé can reuse it */}
+                          {hasPrimaryResume && (
+                            <label className="flex items-center gap-2.5 p-3 border luxury-border-thin cursor-pointer text-xs tracking-wide bg-[#c5a880]/5">
+                              <input type="checkbox" checked={usePrimaryResume} onChange={(e) => setUsePrimaryResume(e.target.checked)} className="accent-[#c5a880]" />
+                              <span className="text-slate-600 dark:text-slate-300">Use {primaryResumeName || 'my saved résumé'}</span>
+                            </label>
+                          )}
+
+                          {(!hasPrimaryResume || !usePrimaryResume) && (
+                            <label className={`flex flex-col items-center justify-center p-6 border-2 border-dashed rounded-none cursor-pointer transition-all duration-300 ${file ? 'border-emerald-500 bg-emerald-500/5' : 'border-slate-300 dark:border-slate-800 hover:border-[#c5a880]'}`}>
+                              {file ? <FileText size={24} className="text-emerald-500 mb-2" /> : <UploadCloud size={24} className="text-[#c5a880] mb-2" />}
+                              <span className="text-xs text-slate-600 dark:text-slate-300 truncate max-w-full font-medium tracking-wide">
+                                {file ? file.name : (hasPrimaryResume ? 'UPLOAD A DIFFERENT RÉSUMÉ' : 'ATTACH YOUR RÉSUMÉ')}
+                              </span>
+                              <span className="text-[9px] text-slate-400 uppercase tracking-widest mt-1">
+                                PDF, DOC, DOCX, TXT, RTF, IMAGE (MAX 10MB)
+                              </span>
+                              <input type="file" accept={ACCEPT} className="hidden" onChange={(e) => onPickResume(e.target.files?.[0] || null)} />
+                            </label>
+                          )}
                         </div>
 
                         {/* Screening questions */}
@@ -382,7 +557,13 @@ const CareerApply = () => {
                           Back
                         </button>
                       ) : (
-                        <div></div>
+                        <button
+                          type="button"
+                          onClick={() => setShowForm(false)}
+                          className="px-6 h-11 border border-slate-300 dark:border-slate-800 text-[10px] font-medium tracking-widest uppercase rounded-none hover:border-[#c5a880] transition duration-300 cursor-pointer text-[#1c1c1c] dark:text-[#f5efe9]"
+                        >
+                          Cancel
+                        </button>
                       )}
 
                       {currentStep < steps.length ? (
@@ -412,7 +593,7 @@ const CareerApply = () => {
                 </div>
               )}
             </div>
-          </div>
+          )}
         </div>
       </div>
 

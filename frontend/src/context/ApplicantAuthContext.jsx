@@ -31,12 +31,15 @@ export const ApplicantAuthProvider = ({ children }) => {
     init();
   }, []);
 
-  const persist = (data) => {
-    const { token, success, ...profile } = data;
+  // Persist a session from an auth payload. Exposed so the shared login page can
+  // hand off after the unified /auth/signin call identifies an applicant.
+  const persistSession = (data) => {
+    const { token, success, type, ...profile } = data;
     localStorage.setItem('applicant_token', token);
     localStorage.setItem('applicant', JSON.stringify(profile));
     setApplicant(profile);
   };
+  const persist = persistSession;
 
   const asError = (error, fallback) => {
     if (!error.response) {
@@ -83,6 +86,21 @@ export const ApplicantAuthProvider = ({ children }) => {
     }
   };
 
+  // Re-fetch the full profile and keep the cached identity (name for the shell)
+  // in sync. Returns the full profile object, or null.
+  const refreshProfile = async () => {
+    try {
+      const res = await portalApi.get('/me');
+      if (res.data.success) {
+        const me = { _id: res.data._id, name: res.data.name, email: res.data.email };
+        setApplicant(me);
+        localStorage.setItem('applicant', JSON.stringify(me));
+        return res.data;
+      }
+    } catch { /* ignore */ }
+    return null;
+  };
+
   const logout = () => {
     localStorage.removeItem('applicant_token');
     localStorage.removeItem('applicant');
@@ -90,7 +108,7 @@ export const ApplicantAuthProvider = ({ children }) => {
   };
 
   return (
-    <ApplicantAuthContext.Provider value={{ applicant, loading, register, login, forgotPassword, resetPassword, logout }}>
+    <ApplicantAuthContext.Provider value={{ applicant, loading, register, login, forgotPassword, resetPassword, logout, persistSession, refreshProfile }}>
       {children}
     </ApplicantAuthContext.Provider>
   );

@@ -75,11 +75,42 @@ exports.login = async (req, res) => {
   }
 };
 
-// @desc    Current applicant profile
+// @desc    Current applicant profile (full)
 // @route   GET /api/portal/me
 // @access  Private (applicant)
 exports.getMe = async (req, res) => {
-  return res.json({ success: true, _id: req.applicant.id, name: req.applicant.name, email: req.applicant.email });
+  try {
+    const a = await ApplicantRepo.findById(req.applicant.id);
+    if (!a) return res.status(404).json({ success: false, message: 'Account not found.' });
+    return res.json({ success: true, ...a });
+  } catch (error) {
+    console.error('Portal getMe error:', error);
+    return res.status(500).json({ success: false, message: 'Could not load your profile.' });
+  }
+};
+
+// @desc    Change the signed-in applicant's password
+// @route   POST /api/portal/change-password
+// @access  Private (applicant)
+exports.changePassword = async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ success: false, message: 'Current and new password are required.' });
+    }
+    if (String(newPassword).length < 6) {
+      return res.status(400).json({ success: false, message: 'New password must be at least 6 characters.' });
+    }
+    const row = await ApplicantRepo.findRawById(req.applicant.id);
+    if (!row || !(await ApplicantRepo.matchPassword(currentPassword, row))) {
+      return res.status(400).json({ success: false, message: 'Your current password is incorrect.' });
+    }
+    await ApplicantRepo.updatePassword(row.id, newPassword);
+    return res.json({ success: true, message: 'Password changed successfully.' });
+  } catch (error) {
+    console.error('Portal changePassword error:', error);
+    return res.status(500).json({ success: false, message: 'Server error changing password.' });
+  }
 };
 
 // @desc    Request a password reset link

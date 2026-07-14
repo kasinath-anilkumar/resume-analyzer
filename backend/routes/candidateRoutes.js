@@ -8,6 +8,10 @@ const {
   addNote,
   deleteNote,
   deleteCandidate,
+  getTrash,
+  restoreCandidate,
+  permanentDeleteCandidate,
+  deletePerson,
   exportCandidate,
   getRecommendations,
   getDashboardStats,
@@ -26,6 +30,9 @@ router.get('/dashboard/stats', protect, getDashboardStats);
 // declared before '/:id' so 'recommendations' isn't parsed as an id).
 router.get('/recommendations', protect, getRecommendations);
 
+// Trash (soft-deleted candidates). Declared before '/:id'.
+router.get('/trash', protect, authorize('Admin', 'Recruiter'), getTrash);
+
 // Upload resume & retrieve candidates
 router.route('/')
   .get(protect, getCandidates)
@@ -35,6 +42,11 @@ router.route('/')
 router.route('/:id')
   .get(protect, getCandidateById)
   .delete(protect, authorize('Admin', 'Recruiter'), deleteCandidate);
+
+// Trash lifecycle + GDPR erasure
+router.post('/:id/restore', protect, authorize('Admin', 'Recruiter'), restoreCandidate);
+router.delete('/:id/permanent', protect, authorize('Admin', 'Recruiter'), permanentDeleteCandidate);
+router.delete('/:id/person', protect, authorize('Admin', 'Recruiter'), deletePerson);
 
 router.put('/:id/status', protect, authorize('Admin', 'Recruiter'), updateCandidateStatus);
 
