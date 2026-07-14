@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { API_ORIGIN } from '../services/api';
-import { Mail, Lock, Loader2, ArrowRight, CheckCircle2 } from 'lucide-react';
+import { Mail, Lock, Loader2, ArrowRight, CheckCircle2, ChevronLeft } from 'lucide-react';
 
 const Login = () => {
   const { login, forgotPassword } = useAuth();
@@ -62,90 +62,109 @@ const Login = () => {
     }
   };
 
+  const inputStyle = 'w-full h-11 pl-10 pr-4 border text-xs tracking-wide luxury-input focus:outline-none';
+
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 bg-slate-50 dark:bg-darkBg transition-colors duration-200">
+    <div className="min-h-screen flex items-center justify-center p-4 bg-luxury-gradient text-[#1c1c1c] dark:text-[#f5efe9] font-luxury transition-colors duration-200">
 
       {/* Outer Card Grid */}
-      <div className="w-full max-w-4xl grid grid-cols-1 md:grid-cols-2 bg-white dark:bg-darkCard border border-slate-200 dark:border-darkBorder rounded-3xl overflow-hidden shadow-premium dark:shadow-premium-dark">
+      <div className="w-full max-w-4xl grid grid-cols-1 md:grid-cols-2 bg-white/80 dark:bg-[#151210]/80 border luxury-border-thin rounded-none overflow-hidden shadow-sm">
 
         {/* Left Brand Panel */}
-        <div className="hidden md:flex flex-col justify-between p-10 bg-gradient-to-tr from-brand-700 to-indigo-900 text-white relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-80 h-80 bg-brand-500/10 rounded-full blur-3xl -mr-16 -mt-16" />
-          <div className="absolute bottom-0 left-0 w-80 h-80 bg-indigo-500/10 rounded-full blur-3xl -ml-16 -mb-16" />
-
-          <div className="flex items-center space-x-2.5 z-10">
-            <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-white/10 text-white font-bold text-lg">
-              Ω
-            </div>
-            <span className="font-bold tracking-tight text-lg">PARAKKAT RESUME ANALYZER</span>
+        <div className="hidden md:flex flex-col justify-between p-10 bg-[#1c1c1c] text-white relative overflow-hidden border-r luxury-border-thin">
+          <div className="absolute inset-0 opacity-5 bg-[radial-gradient(#c5a880_1px,transparent_1px)] [background-size:16px_16px]"></div>
+          
+          <div className="flex items-center space-x-3 z-10">
+            <img 
+              src="https://parakkatjewels.com/cdn/shop/files/Logo.png?v=1711363419&width=96" 
+              alt="Parakkat Jewels Logo" 
+              className="h-10 w-auto object-contain brightness-100 dark:brightness-95" 
+            />
+            <span className="font-luxury font-medium tracking-[0.2em] text-xs uppercase border-l luxury-border-thin pl-3 text-[#e2d1c5]">
+              Recruitment
+            </span>
           </div>
 
           <div className="space-y-4 z-10 my-auto">
-            <h2 className="text-3xl font-extrabold tracking-tight leading-tight">
-              Enterprise Recruitment, <br />
-              <span className="text-brand-300">Powered by AI.</span>
+            <span className="text-[9px] tracking-[0.3em] text-[#c5a880] uppercase font-bold block mb-1">
+              Recruiter Access Portal
+            </span>
+            <h2 className="text-2xl font-light tracking-[0.18em] uppercase leading-snug">
+              Enterprise Talent, <br />
+              <span className="text-[#c5a880] font-normal">Layered with Pure Gold.</span>
             </h2>
-            <p className="text-sm text-slate-300/90 leading-relaxed max-w-sm">
-              Sift, parse, score and match candidates directly against job postings in seconds using advanced LLMs and secure parsing pipelines.
+            <div className="w-12 h-[1px] bg-[#c5a880] my-3"></div>
+            <p className="text-[10px] text-[#e2d1c5] tracking-widest uppercase leading-relaxed max-w-sm font-light">
+              Access the screening pipeline dashboard to parse, review, score, and match applicants against job requirements instantly.
             </p>
           </div>
 
-          <div className="text-xs text-slate-400 z-10">
-            &copy; 2026 PARAKKAT ATS, Inc. All rights reserved.
+          <div className="text-[9px] tracking-widest uppercase text-slate-500 z-10">
+            &copy; {new Date().getFullYear()} PARAKKAT JEWELS. All rights reserved.
           </div>
         </div>
 
         {/* Right Auth Forms Panel */}
-        <div className="p-8 md:p-10 flex flex-col justify-center">
+        <div className="p-8 md:p-10 flex flex-col justify-center bg-white/60 dark:bg-black/10">
+          
+          {/* Back to Careers Link */}
+          <Link to="/careers" className="inline-flex items-center text-[10px] font-semibold uppercase tracking-widest text-slate-500 hover:text-[#c5a880] transition-colors duration-200 mb-6">
+            <ChevronLeft size={14} className="mr-1 text-[#c5a880]" /> Back to Careers
+          </Link>
+
           {!forgotMode ? (
             <div className="space-y-6">
               <div>
-                <h3 className="text-2xl font-extrabold text-slate-800 dark:text-slate-100">Welcome back</h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                <h3 className="text-base font-semibold uppercase tracking-[0.15em] text-[#1c1c1c] dark:text-[#f5efe9]">
+                  Welcome back
+                </h3>
+                <p className="text-[10px] uppercase tracking-widest text-slate-400 mt-1">
                   Access your screening pipeline dashboard.
                 </p>
               </div>
 
               {error && (
-                <div className="p-3.5 bg-rose-500/10 border border-rose-500/20 text-rose-500 text-xs rounded-xl flex items-center">
+                <div className="p-3.5 bg-rose-500/10 border border-rose-500/20 text-rose-500 text-xs rounded-none flex items-center tracking-wide">
                   <span className="font-medium">{error}</span>
                 </div>
               )}
 
-              <form onSubmit={handleLoginSubmit} className="space-y-4">
+              <form onSubmit={handleLoginSubmit} className="space-y-5">
                 <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-slate-500 dark:text-slate-400">Email Address</label>
+                  <label className="text-[9px] font-semibold tracking-widest text-slate-400 uppercase">Email Address</label>
                   <div className="relative">
-                    <Mail size={16} className="absolute left-3.5 top-3 text-slate-400" />
+                    <Mail size={14} className="absolute left-3.5 top-3.5 text-[#c5a880]" />
                     <input
                       type="email"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
-                      placeholder="recruiter@company.com"
-                      className="w-full h-11 pl-10 pr-4 border border-slate-200 dark:border-darkBorder rounded-xl bg-slate-50/50 dark:bg-slate-900 text-sm text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
+                      placeholder="RECRUITER@PARAKKAT.COM"
+                      className={inputStyle}
+                      required
                     />
                   </div>
                 </div>
 
                 <div className="space-y-1.5">
                   <div className="flex justify-between items-center">
-                    <label className="text-xs font-semibold text-slate-500 dark:text-slate-400">Password</label>
+                    <label className="text-[9px] font-semibold tracking-widest text-slate-400 uppercase">Password</label>
                     <button
                       type="button"
                       onClick={() => setForgotMode(true)}
-                      className="text-xs font-medium text-brand-500 hover:underline"
+                      className="text-[9px] font-semibold tracking-widest text-[#c5a880] hover:underline uppercase"
                     >
                       Forgot?
                     </button>
                   </div>
                   <div className="relative">
-                    <Lock size={16} className="absolute left-3.5 top-3 text-slate-400" />
+                    <Lock size={14} className="absolute left-3.5 top-3.5 text-[#c5a880]" />
                     <input
                       type="password"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       placeholder="••••••••"
-                      className="w-full h-11 pl-10 pr-4 border border-slate-200 dark:border-darkBorder rounded-xl bg-slate-50/50 dark:bg-slate-900 text-sm text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
+                      className={inputStyle}
+                      required
                     />
                   </div>
                 </div>
@@ -153,14 +172,14 @@ const Login = () => {
                 <button
                   type="submit"
                   disabled={loading}
-                  className="flex items-center justify-center w-full h-11 space-x-2 bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-700 hover:to-indigo-700 text-white rounded-xl font-semibold text-sm transition shadow-md shadow-brand-500/10"
+                  className="flex items-center justify-center w-full h-11 space-x-2 bg-[#1c1c1c] text-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[#c5a880] hover:text-[#1c1c1c] text-[10px] font-medium tracking-widest uppercase rounded-none transition duration-300 cursor-pointer"
                 >
                   {loading ? (
-                    <Loader2 size={16} className="animate-spin" />
+                    <Loader2 size={14} className="animate-spin" />
                   ) : (
                     <>
                       <span>Sign In</span>
-                      <ArrowRight size={16} />
+                      <ArrowRight size={14} />
                     </>
                   )}
                 </button>
@@ -169,39 +188,41 @@ const Login = () => {
           ) : (
             <div className="space-y-6">
               <div>
-                <h3 className="text-2xl font-extrabold text-slate-800 dark:text-slate-100">Reset password</h3>
-                <p className="text-xs text-slate-500 mt-1">
-                  Enter your email address and we'll send you a password reset link.
+                <h3 className="text-base font-semibold uppercase tracking-[0.15em] text-[#1c1c1c] dark:text-[#f5efe9]">
+                  Reset password
+                </h3>
+                <p className="text-[10px] uppercase tracking-widest text-slate-400 mt-1">
+                  Enter your email address to receive a password reset link.
                 </p>
               </div>
 
               {error && (
-                <div className="p-3.5 bg-rose-500/10 border border-rose-500/20 text-rose-500 text-xs rounded-xl">
+                <div className="p-3.5 bg-rose-500/10 border border-rose-500/20 text-rose-500 text-xs rounded-none tracking-wide">
                   {error}
                 </div>
               )}
 
               {forgotSuccess ? (
-                <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-xs rounded-xl space-y-2">
+                <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-xs rounded-none space-y-2 tracking-wide uppercase">
                   <div className="flex items-center space-x-2">
-                    <CheckCircle2 size={16} />
+                    <CheckCircle2 size={14} className="text-emerald-500" />
                     <span className="font-bold">Request Sent</span>
                   </div>
-                  <p>{forgotSuccess}</p>
+                  <p className="text-[10px] leading-relaxed font-light">{forgotSuccess}</p>
                 </div>
               ) : (
                 <form onSubmit={handleForgotSubmit} className="space-y-4">
                   <div className="space-y-1.5">
-                    <label className="text-xs font-semibold text-slate-500 dark:text-slate-400">Email Address</label>
+                    <label className="text-[9px] font-semibold tracking-widest text-slate-400 uppercase">Email Address</label>
                     <div className="relative">
-                      <Mail size={16} className="absolute left-3.5 top-3 text-slate-400" />
+                      <Mail size={14} className="absolute left-3.5 top-3.5 text-[#c5a880]" />
                       <input
                         type="email"
                         required
                         value={forgotEmail}
                         onChange={(e) => setForgotEmail(e.target.value)}
-                        placeholder="email@company.com"
-                        className="w-full h-11 pl-10 pr-4 border border-slate-200 dark:border-darkBorder rounded-xl bg-slate-50/50 dark:bg-slate-900 text-sm text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
+                        placeholder="RECRUITER@PARAKKAT.COM"
+                        className={inputStyle}
                       />
                     </div>
                   </div>
@@ -209,10 +230,10 @@ const Login = () => {
                   <button
                     type="submit"
                     disabled={forgotLoading}
-                    className="flex items-center justify-center w-full h-11 space-x-2 bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-700 hover:to-indigo-700 text-white rounded-xl font-semibold text-sm transition shadow-md shadow-brand-500/10"
+                    className="flex items-center justify-center w-full h-11 space-x-2 bg-[#1c1c1c] text-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[#c5a880] hover:text-[#1c1c1c] text-[10px] font-medium tracking-widest uppercase rounded-none transition duration-300 cursor-pointer"
                   >
                     {forgotLoading ? (
-                      <Loader2 size={16} className="animate-spin" />
+                      <Loader2 size={14} className="animate-spin" />
                     ) : (
                       <span>Send Reset Instructions</span>
                     )}
@@ -227,7 +248,7 @@ const Login = () => {
                     setError('');
                     setForgotSuccess('');
                   }}
-                  className="text-xs font-semibold text-brand-500 hover:underline"
+                  className="text-[9px] font-semibold tracking-widest text-[#c5a880] hover:underline uppercase"
                 >
                   Back to login
                 </button>
