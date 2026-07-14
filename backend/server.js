@@ -22,6 +22,8 @@ process.on('uncaughtException', (err) => {
 const { isConfigured } = require('./config/supabase');
 if (isConfigured()) {
   console.log('Supabase data layer configured.');
+  // Start the background résumé-analysis worker (drains the pending queue).
+  require('./services/analysisWorker').start().catch((e) => console.error('Worker start failed:', e.message));
 } else {
   console.warn('WARNING: Supabase is not configured — set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in backend/.env.');
 }
@@ -86,6 +88,7 @@ app.use('/api/jobs', require('./routes/jobRoutes'));
 app.use('/api/candidates', require('./routes/candidateRoutes'));
 app.use('/api/settings', require('./routes/settingsRoutes'));
 app.use('/api/notifications', require('./routes/notificationRoutes'));
+app.use('/api/audit', require('./routes/auditRoutes'));
 
 // API status check
 app.get('/', (req, res) => {

@@ -96,8 +96,23 @@ export const UploadProvider = ({ children }) => {
     setJobLabel('');
   };
 
-  // Sequentially upload + analyze the queue. Lives in the provider so it keeps
-  // running regardless of which route is currently mounted.
+  // Poll a candidate until the background worker finishes its analysis.
+  // Returns the final candidate (completed/failed) or null on timeout.
+  const pollAnalysis = async (candidateId, { intervalMs = 2500, maxAttempts = 72 } = {}) => {
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      await new Promise((r) => setTimeout(r, intervalMs));
+      try {
+        const res = await api.get(`/candidates/${candidateId}`);
+        const c = res.data?.data;
+        if (c?.analysisStatus === 'completed' || c?.analysisStatus === 'failed') return c;
+      } catch (_) { /* transient — keep polling */ }
+    }
+    return null;
+  };
+
+  // Sequentially upload + analyze the queue. Uploads now return immediately
+  // (analysis runs in the server-side worker); we poll each candidate to
+  // completion. Lives in the provider so it keeps running across route changes.
   const startUpload = async (jobId, label = '') => {
     const queue = itemsRef.current;
     if (queue.length === 0 || !jobId || uploading) return;
@@ -134,6 +149,7 @@ export const UploadProvider = ({ children }) => {
       };
 
       try {
+        // 1) Upload the file — returns immediately with a queued candidate.
         const res = await api.post('/candidates', formData, {
           headers: { 'Content-Type': 'multipart/form-data' },
           onUploadProgress: (pe) => {
@@ -149,36 +165,53 @@ export const UploadProvider = ({ children }) => {
           },
         });
 
-        startAnalyzing();
-        if (analyzeTimer) {
-          clearInterval(analyzeTimer);
-          analyzeTimer = null;
-        }
+        const candidateId = res.data?.data?._id;
+        if (!res.data.success || !candidateId) throw new Error(res.data?.message || 'Upload failed');
 
-        if (res.data.success) {
-          const ai = res.data.data?.aiAnalysis || {};
-          const score = Number.isFinite(ai.overallScore) ? ai.overallScore : 0;
-          const matchPercentage = Number.isFinite(ai.matchPercentage) ? ai.matchPercentage : null;
-          const recommendation = ai.recommendation || '';
+        // 2) Poll the background worker until analysis finishes.
+        startAnalyzing();
+        const finalC = await pollAnalysis(candidateId);
+        if (analyzeTimer) { clearInterval(analyzeTimer); analyzeTimer = null; }
+
+        if (finalC?.analysisStatus === 'completed') {
+          const ai = finalC.aiAnalysis || {};
           setStatus((prev) => ({
             ...prev,
             [it.key]: {
               progress: 100,
               state: 'success',
               message: 'Analysis complete',
-              result: { score, matchPercentage, recommendation, candidateId: res.data.data?._id },
+              result: {
+                score: Number.isFinite(ai.overallScore) ? ai.overallScore : 0,
+                matchPercentage: Number.isFinite(ai.matchPercentage) ? ai.matchPercentage : null,
+                recommendation: ai.recommendation || '',
+                candidateId,
+              },
+            },
+          }));
+        } else if (finalC?.analysisStatus === 'failed') {
+          setStatus((prev) => ({
+            ...prev,
+            [it.key]: { progress: 100, state: 'error', message: finalC.analysisError || 'AI analysis failed.' },
+          }));
+        } else {
+          // Still queued after the poll window — it will finish server-side.
+          setStatus((prev) => ({
+            ...prev,
+            [it.key]: {
+              progress: 100,
+              state: 'success',
+              message: 'Uploaded — still analyzing (will appear in Candidates)',
+              result: { score: null, matchPercentage: null, recommendation: '', candidateId },
             },
           }));
         }
       } catch (err) {
         console.error(err);
-        if (analyzeTimer) {
-          clearInterval(analyzeTimer);
-          analyzeTimer = null;
-        }
+        if (analyzeTimer) { clearInterval(analyzeTimer); analyzeTimer = null; }
         setStatus((prev) => ({
           ...prev,
-          [it.key]: { progress: 0, state: 'error', message: err.response?.data?.message || 'Processing failed.' },
+          [it.key]: { progress: 0, state: 'error', message: err.response?.data?.message || err.message || 'Processing failed.' },
         }));
       }
     }

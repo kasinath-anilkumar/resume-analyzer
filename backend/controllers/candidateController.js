@@ -6,6 +6,7 @@ const ParserService = require('../services/parserService');
 const AIService = require('../services/aiService');
 const StorageService = require('../services/storageService');
 const EmailService = require('../services/emailService');
+const AuditRepo = require('../models/auditRepo');
 
 // Resolve the AI provider/key configured through Settings so resume analysis
 // uses whatever key the admin pasted in the UI (auto-detected provider).
@@ -39,83 +40,36 @@ exports.uploadResume = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Job opening not found' });
     }
 
-    // 2. Extract text straight from the in-memory buffer (no temp file)
-    let extractedText;
-    try {
-      extractedText = await ParserService.extractText(
-        req.file.buffer,
-        req.file.mimetype,
-        req.file.originalname
-      );
-    } catch (parseErr) {
-      return res.status(422).json({ success: false, message: `Failed to extract text: ${parseErr.message}` });
-    }
-
-    // 3. AI analysis — REQUIRES a valid, working provider key (no mock fallback).
-    const aiConfig = await resolveAiConfig();
-    let aiParsedResult;
-    try {
-      aiParsedResult = await AIService.analyzeResume(extractedText, job, aiConfig);
-    } catch (aiErr) {
-      console.error('AI analysis failed:', aiErr.message);
-      return res.status(aiErr.status || 502).json({
-        success: false,
-        code: aiErr.code || 'AI_FAILED',
-        message: aiErr.message || 'AI analysis failed. Please verify the API key in Settings.',
-      });
-    }
-
-    // 4. Store the resume file (Supabase Storage, or local disk fallback)
+    // 2. Store the résumé file now. Parsing + AI analysis happen in the
+    //    background worker so this request returns immediately (no OCR/AI/
+    //    rate-limit latency on the request path).
     let stored;
     try {
-      stored = await StorageService.uploadResume(
-        req.file.buffer,
-        req.file.originalname,
-        req.file.mimetype
-      );
+      stored = await StorageService.uploadResume(req.file.buffer, req.file.originalname, req.file.mimetype);
     } catch (storageErr) {
       console.error('Resume storage failed:', storageErr.response?.data || storageErr.message);
       return res.status(502).json({ success: false, message: 'Failed to store resume file. Check storage configuration.' });
     }
 
-    // 5. Build candidate record
-    const candidateData = {
-      name: aiParsedResult.name || 'Unknown Candidate',
-      email: aiParsedResult.email || 'unknown@example.com',
-      phone: aiParsedResult.phone || '',
+    // 3. Create a placeholder candidate queued for analysis. The worker fills in
+    //    name/email/skills/aiAnalysis and flips analysis_status to 'completed'.
+    const baseName = (req.file.originalname || 'resume').replace(/\.[^.]+$/, '').slice(0, 120) || 'New candidate';
+    const candidate = await CandidateRepo.create({
+      name: baseName,
+      email: `pending-${Date.now()}-${Math.round(Math.random() * 1e6)}@pending.local`,
+      phone: '',
       resumeUrl: stored.url,
-      skills: aiParsedResult.skills || [],
-      education: aiParsedResult.education || [],
-      experience: aiParsedResult.experience || [],
-      projects: aiParsedResult.projects || [],
-      certifications: aiParsedResult.certifications || [],
-      languages: aiParsedResult.languages || [],
-      githubUrl: aiParsedResult.githubUrl || '',
-      linkedInUrl: aiParsedResult.linkedInUrl || '',
-      portfolioUrl: aiParsedResult.portfolioUrl || '',
       jobId: job._id,
       status: 'Applied',
-      aiAnalysis: aiParsedResult.aiAnalysis || {},
-    };
+      source: 'Manual',
+      analysisStatus: 'pending',
+      aiAnalysis: {},
+    });
 
-    // 6. Duplicate check — is this email already on another candidate?
-    let duplicates = [];
-    try {
-      duplicates = await CandidateRepo.findByEmail(candidateData.email);
-    } catch (dupErr) {
-      console.error('Duplicate check failed:', dupErr.message);
-    }
-
-    // 7. Persist
-    const candidate = await CandidateRepo.create(candidateData);
-
-    return res.status(201).json({
+    return res.status(202).json({
       success: true,
-      message: `Resume parsed and analyzed successfully (stored via ${stored.provider})`,
+      message: 'Résumé uploaded and queued for AI analysis.',
       data: candidate,
-      duplicateWarning: duplicates.length
-        ? `A candidate with the email ${candidateData.email} already exists (${duplicates.length} other record${duplicates.length > 1 ? 's' : ''}).`
-        : null,
     });
   } catch (error) {
     console.error('Upload processing error:', error);
@@ -180,6 +134,7 @@ exports.updateCandidateStatus = async (req, res) => {
     if (!candidate) {
       return res.status(404).json({ success: false, message: 'Candidate not found' });
     }
+    AuditRepo.log(req.user, 'candidate.status_change', { entityType: 'candidate', entityId: req.params.id, summary: `${candidate.name} → ${status}` });
     return res.json({ success: true, data: candidate });
   } catch (error) {
     console.error(error);
@@ -336,6 +291,7 @@ exports.moveCandidateJob = async (req, res) => {
     if (!candidate) {
       return res.status(404).json({ success: false, message: 'Candidate not found' });
     }
+    AuditRepo.log(req.user, 'candidate.move_job', { entityType: 'candidate', entityId: req.params.id, summary: `Moved ${candidate.name} to ${job.title}` });
     return res.json({
       success: true,
       data: candidate,
@@ -394,6 +350,31 @@ exports.reanalyzeCandidate = async (req, res) => {
   }
 };
 
+// @desc    Export all stored data for a candidate (GDPR subject-access request)
+// @route   GET /api/candidates/:id/export
+// @access  Private (Admin, Recruiter)
+exports.exportCandidate = async (req, res) => {
+  try {
+    const candidate = await CandidateRepo.findByIdApi(req.params.id);
+    if (!candidate) {
+      return res.status(404).json({ success: false, message: 'Candidate not found' });
+    }
+    const filename = `candidate-${String(candidate.name || 'export').replace(/[^a-z0-9]+/gi, '-').toLowerCase()}-${candidate._id}.json`;
+    const payload = {
+      exportedAt: new Date().toISOString(),
+      exportedBy: req.user?.email || req.user?.id,
+      candidate,
+    };
+    AuditRepo.log(req.user, 'candidate.export', { entityType: 'candidate', entityId: candidate._id, summary: `Exported data for ${candidate.name}` });
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    return res.send(JSON.stringify(payload, null, 2));
+  } catch (error) {
+    console.error('Export candidate error:', error);
+    return res.status(500).json({ success: false, message: 'Server error exporting candidate data' });
+  }
+};
+
 // @desc    Delete a candidate and all associated data (record, notes, resume file)
 // @route   DELETE /api/candidates/:id
 // @access  Private (Admin, Recruiter)
@@ -405,6 +386,7 @@ exports.deleteCandidate = async (req, res) => {
     }
     // Clear the stored resume file so nothing is orphaned (best-effort).
     await StorageService.deleteResume(removed.resumeUrl);
+    AuditRepo.log(req.user, 'candidate.delete', { entityType: 'candidate', entityId: removed._id, summary: `Deleted candidate ${removed.name || removed._id}` });
     return res.json({ success: true, message: 'Candidate and resume deleted', data: { _id: removed._id } });
   } catch (error) {
     console.error('Delete candidate error:', error);

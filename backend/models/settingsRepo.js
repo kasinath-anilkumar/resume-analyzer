@@ -32,6 +32,7 @@ const toApi = (row) =>
     aiProvider: row.ai_provider || 'mock',
     aiApiKey: decrypt(row.ai_api_key), // stored encrypted at rest
     aiModel: row.ai_model || '',
+    retentionDays: row.retention_days || 0,
     updatedBy: row.updated_by,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -79,6 +80,10 @@ const SettingsRepo = {
     if (patch.aiProvider !== undefined) row.ai_provider = patch.aiProvider;
     if (patch.aiApiKey !== undefined) row.ai_api_key = encrypt(patch.aiApiKey);
     if (patch.aiModel !== undefined) row.ai_model = patch.aiModel;
+    if (patch.retentionDays !== undefined) {
+      const n = parseInt(patch.retentionDays, 10);
+      row.retention_days = Number.isFinite(n) && n >= 0 ? n : 0;
+    }
     if (userId) row.updated_by = userId;
 
     const { data, error } = await getClient()

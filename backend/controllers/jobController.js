@@ -3,6 +3,7 @@ const CandidateRepo = require('../models/candidateRepo');
 const SettingsRepo = require('../models/settingsRepo');
 const ParserService = require('../services/parserService');
 const AIService = require('../services/aiService');
+const AuditRepo = require('../models/auditRepo');
 
 // Resolve the AI provider/key configured through Settings (same as candidate
 // upload) so poster extraction uses whatever key the admin configured.
@@ -115,6 +116,7 @@ exports.extractJobFromPoster = async (req, res) => {
 exports.createJob = async (req, res) => {
   try {
     const job = await JobRepo.create(req.body, req.user.id);
+    AuditRepo.log(req.user, 'job.create', { entityType: 'job', entityId: job._id, summary: `Created job "${job.title}"` });
     return res.status(201).json({ success: true, data: job });
   } catch (error) {
     console.error(error);
@@ -132,6 +134,7 @@ exports.updateJob = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Job not found' });
     }
     const job = await JobRepo.update(req.params.id, req.body);
+    AuditRepo.log(req.user, 'job.update', { entityType: 'job', entityId: req.params.id, summary: `Updated job "${job.title}"` });
     return res.json({ success: true, data: job });
   } catch (error) {
     console.error(error);
@@ -150,6 +153,7 @@ exports.deleteJob = async (req, res) => {
     }
     // Associated candidate rows are removed automatically (job_id cascade).
     await JobRepo.remove(req.params.id);
+    AuditRepo.log(req.user, 'job.delete', { entityType: 'job', entityId: req.params.id, summary: `Deleted job "${job.title}" (and its candidates)` });
     return res.json({ success: true, message: 'Job posting and associated candidates deleted successfully' });
   } catch (error) {
     console.error(error);

@@ -33,6 +33,7 @@ const Settings = () => {
   const [departments, setDepartments] = useState([]);
   const [locations, setLocations] = useState([]);
   const [minAiScore, setMinAiScore] = useState(60);
+  const [retentionDays, setRetentionDays] = useState(0);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState({ type: '', message: '' });
@@ -70,7 +71,7 @@ const Settings = () => {
       try {
         const res = await api.get('/settings');
         if (res.data.success) {
-          const { departments, locations, minAiScore, aiProvider, aiKeyConfigured, aiKeyMasked, aiModel } = res.data.data;
+          const { departments, locations, minAiScore, aiProvider, aiKeyConfigured, aiKeyMasked, aiModel, retentionDays } = res.data.data;
           setDepartments(departments || []);
           setLocations(locations || []);
           setMinAiScore(minAiScore || 60);
@@ -78,6 +79,7 @@ const Settings = () => {
           setAiKeyConfigured(!!aiKeyConfigured);
           setAiKeyMasked(aiKeyMasked || '');
           setSelectedModel(aiModel || '');
+          if (retentionDays !== undefined) setRetentionDays(retentionDays || 0);
           if (aiKeyConfigured) fetchModels();
         }
 
@@ -166,6 +168,8 @@ const Settings = () => {
       if (aiKeyConfigured || cleaned) {
         payload.aiModel = selectedModel;
       }
+      // Data-retention policy (admin-only).
+      payload.retentionDays = Number(retentionDays) || 0;
     }
 
     setSaving(true);
@@ -826,6 +830,34 @@ const Settings = () => {
                 </h3>
                 <p className="text-[9.5px] text-slate-400">Verifying live server health and database status indicators.</p>
               </div>
+
+              {/* Data & Privacy (GDPR) — Admin only */}
+              {isAdmin && (
+                <div className="space-y-3 bg-slate-50/40 dark:bg-slate-900/10 p-3 rounded-xl border border-slate-200/30 dark:border-darkBorder/10">
+                  <div>
+                    <span className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center">
+                      <ShieldCheck size={13} className="text-brand-500 mr-1.5" /> Data Retention (GDPR)
+                    </span>
+                    <p className="text-[10px] text-slate-400 mt-0.5">
+                      Automatically delete candidate records + résumé files older than this many days. Hired candidates are always kept. Set 0 to keep everything.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number" min="0"
+                      value={retentionDays}
+                      onChange={(e) => setRetentionDays(e.target.value)}
+                      className="h-9 w-28 px-3 border border-slate-200 dark:border-darkBorder rounded-lg bg-white dark:bg-slate-900 text-xs text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
+                    />
+                    <span className="text-[11px] text-slate-500">
+                      {Number(retentionDays) > 0
+                        ? `days — candidates older than ${retentionDays} days are auto-purged`
+                        : 'days — retention OFF (nothing auto-deleted)'}
+                    </span>
+                  </div>
+                  <p className="text-[9.5px] text-slate-400">Saved with “Save Settings”. Purge runs periodically in the background.</p>
+                </div>
+              )}
 
               {/* Change your password — available to every signed-in user */}
               <div className="space-y-3 bg-slate-50/40 dark:bg-slate-900/10 p-3 rounded-xl border border-slate-200/30 dark:border-darkBorder/10">

@@ -1,10 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import api from '../services/api';
 import {
   Briefcase, MapPin, Clock, ChevronLeft, Loader2, UploadCloud,
-  CheckCircle2, AlertCircle, FileText
+  CheckCircle2, AlertCircle, FileText, ClipboardList, AlertTriangle
 } from 'lucide-react';
+
+const fmtTime = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 
 const ACCEPT = '.pdf,.doc,.docx,.txt,.rtf,image/*';
 
@@ -21,17 +23,46 @@ const CareerApply = () => {
   const [error, setError] = useState('');
   const [done, setDone] = useState(null); // success message
 
+  // Quiz state
+  const [quizAnswers, setQuizAnswers] = useState({}); // { questionId: index|string }
+  const [secondsLeft, setSecondsLeft] = useState(null);
+  const [quizLocked, setQuizLocked] = useState(false);
+  const [tabSwitches, setTabSwitches] = useState(0);
+  const startedRef = useRef(null);
+  const hasQuiz = job?.quiz?.questions?.length > 0;
+
   useEffect(() => {
     api.get(`/public/jobs/${id}`)
       .then((res) => {
         if (res.data.success) {
-          setJob(res.data.data);
-          setAnswers((res.data.data.screeningQuestions || []).map((q) => ({ question: q, answer: '' })));
+          const j = res.data.data;
+          setJob(j);
+          setAnswers((j.screeningQuestions || []).map((q) => ({ question: q, answer: '' })));
+          if (j.quiz?.questions?.length) {
+            startedRef.current = Date.now();
+            if (j.quiz.timeLimitMinutes) setSecondsLeft(j.quiz.timeLimitMinutes * 60);
+          }
         } else setNotFound(true);
       })
       .catch(() => setNotFound(true))
       .finally(() => setLoading(false));
   }, [id]);
+
+  // Countdown timer — locks the quiz (not the whole form) when it hits zero.
+  useEffect(() => {
+    if (secondsLeft == null || quizLocked || done) return undefined;
+    if (secondsLeft <= 0) { setQuizLocked(true); return undefined; }
+    const t = setTimeout(() => setSecondsLeft((s) => s - 1), 1000);
+    return () => clearTimeout(t);
+  }, [secondsLeft, quizLocked, done]);
+
+  // Light anti-cheat: count how many times the applicant leaves the tab mid-quiz.
+  useEffect(() => {
+    if (!hasQuiz || done) return undefined;
+    const onHide = () => { if (document.visibilityState === 'hidden') setTabSwitches((n) => n + 1); };
+    document.addEventListener('visibilitychange', onHide);
+    return () => document.removeEventListener('visibilitychange', onHide);
+  }, [hasQuiz, done]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -46,6 +77,14 @@ const CareerApply = () => {
     fd.append('email', form.email);
     fd.append('phone', form.phone);
     fd.append('screeningAnswers', JSON.stringify(answers.filter((a) => a.answer.trim())));
+
+    if (hasQuiz) {
+      const qa = Object.entries(quizAnswers).map(([questionId, answer]) => ({ questionId, answer }));
+      fd.append('quizAnswers', JSON.stringify(qa));
+      const spent = startedRef.current ? Math.round((Date.now() - startedRef.current) / 1000) : null;
+      fd.append('quizTimeSpent', String(spent ?? ''));
+      fd.append('quizTabSwitches', String(tabSwitches));
+    }
 
     setSubmitting(true);
     try {
@@ -155,6 +194,53 @@ const CareerApply = () => {
                       onChange={(e) => setAnswers((prev) => prev.map((x, i) => (i === idx ? { ...x, answer: e.target.value } : x)))}
                       className="w-full p-3 border border-slate-200 dark:border-darkBorder rounded-xl bg-white dark:bg-slate-900 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 resize-y"
                     />
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Screening quiz */}
+            {hasQuiz && (
+              <div className="space-y-3 pt-2 border-t border-slate-100 dark:border-darkBorder">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center">
+                    <ClipboardList size={13} className="mr-1.5 text-brand-500" /> Screening Quiz
+                  </span>
+                  {secondsLeft != null && (
+                    <span className={`flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-lg border ${secondsLeft <= 30 ? 'bg-rose-500/10 text-rose-600 border-rose-500/20' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 border-slate-200/50'}`}>
+                      <Clock size={12} /> {quizLocked ? "Time's up" : fmtTime(secondsLeft)}
+                    </span>
+                  )}
+                </div>
+                {quizLocked && (
+                  <div className="p-2.5 text-[11px] rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-400 flex items-center gap-1.5">
+                    <AlertTriangle size={13} /> Time is up — your current answers are locked. Submit to finish.
+                  </div>
+                )}
+                {job.quiz.questions.map((q, qi) => (
+                  <div key={q.id} className="space-y-1.5">
+                    <label className="text-[11px] font-medium text-slate-700 dark:text-slate-300">{qi + 1}. {q.question}</label>
+                    {q.type === 'mcq' ? (
+                      <div className="space-y-1">
+                        {(q.options || []).map((opt, oi) => (
+                          <label key={oi} className={`flex items-center gap-2 p-2 rounded-lg border cursor-pointer text-xs transition ${quizAnswers[q.id] === oi ? 'border-brand-400 bg-brand-500/5' : 'border-slate-200 dark:border-darkBorder hover:border-brand-300'} ${quizLocked ? 'opacity-60 cursor-not-allowed' : ''}`}>
+                            <input
+                              type="radio" name={`quiz-${q.id}`} checked={quizAnswers[q.id] === oi} disabled={quizLocked}
+                              onChange={() => setQuizAnswers((p) => ({ ...p, [q.id]: oi }))}
+                              className="accent-brand-600"
+                            />
+                            <span className="text-slate-700 dark:text-slate-300">{opt}</span>
+                          </label>
+                        ))}
+                      </div>
+                    ) : (
+                      <textarea
+                        rows="2" disabled={quizLocked}
+                        value={quizAnswers[q.id] || ''}
+                        onChange={(e) => setQuizAnswers((p) => ({ ...p, [q.id]: e.target.value }))}
+                        className="w-full p-3 border border-slate-200 dark:border-darkBorder rounded-xl bg-white dark:bg-slate-900 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-500/20 resize-y disabled:opacity-60"
+                      />
+                    )}
                   </div>
                 ))}
               </div>

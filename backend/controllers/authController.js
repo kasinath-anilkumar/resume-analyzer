@@ -2,6 +2,7 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const UserRepo = require('../models/userRepo');
 const EmailService = require('../services/emailService');
+const AuditRepo = require('../models/auditRepo');
 
 // Generate JWT token
 const generateToken = (id) => {
@@ -131,6 +132,7 @@ exports.changePassword = async (req, res) => {
     }
 
     await UserRepo.updatePassword(row.id, newPassword);
+    AuditRepo.log(req.user, 'auth.password_change', { entityType: 'auth', entityId: req.user.id, summary: 'Changed own password' });
     return res.json({ success: true, message: 'Password changed successfully.' });
   } catch (error) {
     console.error(error);
@@ -195,6 +197,7 @@ exports.createUser = async (req, res) => {
       return res.status(400).json({ success: false, message: 'A user with this email already exists.' });
     }
     const user = await UserRepo.create({ name, email, password, role: finalRole });
+    AuditRepo.log(req.user, 'user.create', { entityType: 'user', entityId: user._id, summary: `Created user ${user.email} (${user.role})` });
     return res.status(201).json({ success: true, data: user });
   } catch (error) {
     console.error(error);
@@ -226,6 +229,7 @@ exports.updateUserRole = async (req, res) => {
       }
     }
     const updated = await UserRepo.updateRole(req.params.id, role);
+    AuditRepo.log(req.user, 'user.role_change', { entityType: 'user', entityId: req.params.id, summary: `Changed ${target.email} role: ${target.role} → ${role}` });
     return res.json({ success: true, data: updated });
   } catch (error) {
     console.error(error);
@@ -252,6 +256,7 @@ exports.deleteUser = async (req, res) => {
       }
     }
     await UserRepo.remove(req.params.id);
+    AuditRepo.log(req.user, 'user.delete', { entityType: 'user', entityId: req.params.id, summary: `Deleted user ${target.email} (${target.role})` });
     return res.json({ success: true, message: 'User deleted' });
   } catch (error) {
     console.error(error);

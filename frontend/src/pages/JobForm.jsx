@@ -3,7 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { usePosterExtraction } from '../context/PosterExtractionContext';
-import { ChevronLeft, Loader2, AlertCircle, Sparkles, UploadCloud, CheckCircle2, X } from 'lucide-react';
+import { ChevronLeft, Loader2, AlertCircle, Sparkles, UploadCloud, CheckCircle2, X, Plus, Trash2, ClipboardList } from 'lucide-react';
 
 const emptyForm = {
   title: '',
@@ -28,6 +28,7 @@ const JobForm = () => {
 
   const [settings, setSettings] = useState({ departments: [], locations: [] });
   const [formData, setFormData] = useState(emptyForm);
+  const [quiz, setQuiz] = useState({ timeLimitMinutes: '', questions: [] });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -76,6 +77,8 @@ const JobForm = () => {
               description: job.description || '',
               screeningQuestions: (job.screeningQuestions || []).join('\n'),
             });
+            const q = job.quiz && job.quiz.questions ? job.quiz : { timeLimitMinutes: '', questions: [] };
+            setQuiz({ timeLimitMinutes: q.timeLimitMinutes || '', questions: q.questions || [] });
           } else {
             setError('Job not found.');
           }
@@ -100,6 +103,43 @@ const JobForm = () => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
+
+  // --- Quiz builder handlers ---
+  const addQuestion = (type) =>
+    setQuiz((q) => ({
+      ...q,
+      questions: [
+        ...q.questions,
+        type === 'mcq'
+          ? { id: `q${Date.now()}`, type: 'mcq', question: '', options: ['', ''], correctIndex: 0 }
+          : { id: `q${Date.now()}`, type: 'text', question: '' },
+      ],
+    }));
+  const updateQuestion = (i, patch) =>
+    setQuiz((q) => ({ ...q, questions: q.questions.map((qq, idx) => (idx === i ? { ...qq, ...patch } : qq)) }));
+  const removeQuestion = (i) =>
+    setQuiz((q) => ({ ...q, questions: q.questions.filter((_, idx) => idx !== i) }));
+  const updateOption = (qi, oi, val) =>
+    setQuiz((q) => ({
+      ...q,
+      questions: q.questions.map((qq, idx) =>
+        idx === qi ? { ...qq, options: qq.options.map((o, j) => (j === oi ? val : o)) } : qq
+      ),
+    }));
+  const addOption = (qi) =>
+    setQuiz((q) => ({ ...q, questions: q.questions.map((qq, idx) => (idx === qi ? { ...qq, options: [...qq.options, ''] } : qq)) }));
+  const removeOption = (qi, oi) =>
+    setQuiz((q) => ({
+      ...q,
+      questions: q.questions.map((qq, idx) => {
+        if (idx !== qi) return qq;
+        const options = qq.options.filter((_, j) => j !== oi);
+        let correctIndex = qq.correctIndex;
+        if (oi === correctIndex) correctIndex = 0;
+        else if (oi < correctIndex) correctIndex -= 1;
+        return { ...qq, options, correctIndex };
+      }),
+    }));
 
   // Upload a hiring poster; the AI extraction runs in the shared context so it
   // isn't lost if the user navigates away before it finishes.
@@ -150,6 +190,10 @@ const JobForm = () => {
         requiredSkills: formData.requiredSkills.split(',').map((s) => s.trim()).filter(Boolean),
         preferredSkills: formData.preferredSkills.split(',').map((s) => s.trim()).filter(Boolean),
         screeningQuestions: formData.screeningQuestions.split('\n').map((s) => s.trim()).filter(Boolean),
+        quiz: {
+          timeLimitMinutes: quiz.timeLimitMinutes ? Number(quiz.timeLimitMinutes) : null,
+          questions: quiz.questions,
+        },
       };
       const res = isEdit ? await api.put(`/jobs/${id}`, payload) : await api.post('/jobs', payload);
       if (res.data.success) {
@@ -339,6 +383,79 @@ const JobForm = () => {
             className="w-full p-3 border border-slate-200 dark:border-darkBorder rounded-xl bg-slate-50/50 dark:bg-slate-900 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 resize-y"
           />
           <p className="text-[10px] text-slate-400">Shown to applicants on the public careers page (/careers).</p>
+        </div>
+
+        {/* Screening quiz builder */}
+        <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-darkBorder">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <label className={`${labelClass} flex items-center`}>
+              <ClipboardList size={13} className="mr-1.5 text-brand-500" /> Screening Quiz (optional)
+            </label>
+            <div className="flex items-center gap-2">
+              <input
+                type="number" min="1" placeholder="Time limit (min)"
+                value={quiz.timeLimitMinutes}
+                onChange={(e) => setQuiz((q) => ({ ...q, timeLimitMinutes: e.target.value }))}
+                className="h-8 w-32 px-2 border border-slate-200 dark:border-darkBorder rounded-lg bg-white dark:bg-slate-900 text-[11px] text-slate-700 dark:text-slate-300 focus:outline-none"
+              />
+              <button type="button" onClick={() => addQuestion('mcq')} className="flex items-center gap-1 text-[11px] font-semibold px-2.5 h-8 rounded-lg bg-brand-500/10 text-brand-600 border border-brand-500/20 hover:bg-brand-500/20 transition">
+                <Plus size={12} /> MCQ
+              </button>
+              <button type="button" onClick={() => addQuestion('text')} className="flex items-center gap-1 text-[11px] font-semibold px-2.5 h-8 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition">
+                <Plus size={12} /> Text
+              </button>
+            </div>
+          </div>
+
+          {quiz.questions.length === 0 ? (
+            <p className="text-[10px] text-slate-400">Add multiple-choice (auto-scored) or open-text questions applicants answer when they apply.</p>
+          ) : (
+            <div className="space-y-2.5">
+              {quiz.questions.map((q, qi) => (
+                <div key={q.id} className="p-3 bg-slate-50/50 dark:bg-slate-900/20 border border-slate-200/50 dark:border-darkBorder/40 rounded-xl space-y-2">
+                  <div className="flex items-center gap-2">
+                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${q.type === 'mcq' ? 'bg-brand-500/10 text-brand-600' : 'bg-slate-200 dark:bg-slate-700 text-slate-500'}`}>
+                      {q.type === 'mcq' ? 'MCQ' : 'TEXT'}
+                    </span>
+                    <input
+                      value={q.question}
+                      onChange={(e) => updateQuestion(qi, { question: e.target.value })}
+                      placeholder={`Question ${qi + 1}`}
+                      className="flex-1 h-8 px-2.5 border border-slate-200 dark:border-darkBorder rounded-lg bg-white dark:bg-slate-900 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
+                    />
+                    <button type="button" onClick={() => removeQuestion(qi)} className="p-1 text-slate-400 hover:text-rose-500 transition"><Trash2 size={14} /></button>
+                  </div>
+                  {q.type === 'mcq' && (
+                    <div className="space-y-1.5 pl-1">
+                      {q.options.map((o, oi) => (
+                        <div key={oi} className="flex items-center gap-2">
+                          <input
+                            type="radio" name={`correct-${q.id}`} checked={q.correctIndex === oi}
+                            onChange={() => updateQuestion(qi, { correctIndex: oi })}
+                            title="Mark as the correct answer"
+                            className="accent-emerald-600"
+                          />
+                          <input
+                            value={o}
+                            onChange={(e) => updateOption(qi, oi, e.target.value)}
+                            placeholder={`Option ${oi + 1}`}
+                            className="flex-1 h-7 px-2 border border-slate-200 dark:border-darkBorder rounded-lg bg-white dark:bg-slate-900 text-[11px] text-slate-700 dark:text-slate-300 focus:outline-none"
+                          />
+                          {q.options.length > 2 && (
+                            <button type="button" onClick={() => removeOption(qi, oi)} className="p-0.5 text-slate-400 hover:text-rose-500"><X size={13} /></button>
+                          )}
+                        </div>
+                      ))}
+                      <button type="button" onClick={() => addOption(qi)} className="flex items-center gap-1 text-[10px] font-semibold text-brand-500 hover:text-brand-600">
+                        <Plus size={11} /> Add option
+                      </button>
+                      <p className="text-[9px] text-slate-400">Select the radio next to the correct answer (auto-scored).</p>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Actions */}

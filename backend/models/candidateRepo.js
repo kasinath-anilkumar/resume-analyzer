@@ -23,6 +23,10 @@ const toApi = (row) =>
     status: row.status,
     source: row.source || 'Manual',
     screeningAnswers: row.screening_answers || [],
+    analysisStatus: row.analysis_status || 'completed',
+    analysisError: row.analysis_error || '',
+    quizResult: row.quiz_result && typeof row.quiz_result === 'object' ? row.quiz_result : {},
+    consentAt: row.consent_at || null,
     jobId: row.job_id, // replaced with a populated object where noted
     aiAnalysis: row.ai_analysis || {},
     createdAt: row.created_at,
@@ -49,6 +53,10 @@ const toRow = (data = {}) => {
   if (data.status !== undefined) row.status = data.status;
   if (data.source !== undefined) row.source = data.source;
   if (data.screeningAnswers !== undefined) row.screening_answers = data.screeningAnswers || [];
+  if (data.analysisStatus !== undefined) row.analysis_status = data.analysisStatus;
+  if (data.analysisError !== undefined) row.analysis_error = data.analysisError;
+  if (data.quizResult !== undefined) row.quiz_result = data.quizResult || {};
+  if (data.consentAt !== undefined) row.consent_at = data.consentAt;
   if (data.jobId !== undefined) row.job_id = data.jobId;
   if (data.aiAnalysis !== undefined) row.ai_analysis = data.aiAnalysis || {};
   return row;
@@ -169,6 +177,86 @@ const CandidateRepo = {
     const { data, error } = await getClient().from(TABLE).select('*').eq('id', id).maybeSingle();
     if (error) throw error;
     return data || null;
+  },
+
+  // --- Async analysis queue --------------------------------------------------
+  // Atomically claim the oldest pending candidate for analysis. Returns the
+  // claimed row (with resume_url + job_id) or null if the queue is empty. The
+  // conditional update (…eq('analysis_status','pending')) makes the claim safe
+  // even if two ticks overlap.
+  async claimNextPending() {
+    const { data: pick, error: selErr } = await getClient()
+      .from(TABLE)
+      .select('id')
+      .eq('analysis_status', 'pending')
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (selErr) throw selErr;
+    if (!pick) return null;
+
+    const { data: claimed, error: upErr } = await getClient()
+      .from(TABLE)
+      .update({ analysis_status: 'processing', updated_at: new Date().toISOString() })
+      .eq('id', pick.id)
+      .eq('analysis_status', 'pending')
+      .select('*')
+      .maybeSingle();
+    if (upErr) throw upErr;
+    return claimed || null; // null => another tick grabbed it first
+  },
+
+  // Store a successful analysis result and mark completed.
+  async completeAnalysis(id, parsed) {
+    const patch = {
+      name: parsed.name || undefined,
+      email: parsed.email || undefined,
+      phone: parsed.phone,
+      skills: parsed.skills || [],
+      education: parsed.education || [],
+      experience: parsed.experience || [],
+      projects: parsed.projects || [],
+      certifications: parsed.certifications || [],
+      languages: parsed.languages || [],
+      githubUrl: parsed.githubUrl || '',
+      linkedInUrl: parsed.linkedInUrl || '',
+      portfolioUrl: parsed.portfolioUrl || '',
+      aiAnalysis: parsed.aiAnalysis || {},
+      analysisStatus: 'completed',
+      analysisError: '',
+    };
+    // Only overwrite name/email when the parser actually found them (keep the
+    // applicant-provided values otherwise).
+    const row = toRow(patch);
+    if (!parsed.name) delete row.name;
+    if (!parsed.email) delete row.email;
+    row.updated_at = new Date().toISOString();
+    const { error } = await getClient().from(TABLE).update(row).eq('id', id);
+    if (error) throw error;
+    return true;
+  },
+
+  async failAnalysis(id, message) {
+    const { error } = await getClient()
+      .from(TABLE)
+      .update({ analysis_status: 'failed', analysis_error: String(message || 'Analysis failed'), updated_at: new Date().toISOString() })
+      .eq('id', id);
+    if (error) throw error;
+    return true;
+  },
+
+  // Recovery: return any candidate stuck 'processing' (e.g. from a crash/restart)
+  // longer than `minutes` back to 'pending'.
+  async resetStaleProcessing(minutes = 10) {
+    const cutoff = new Date(Date.now() - minutes * 60 * 1000).toISOString();
+    const { data, error } = await getClient()
+      .from(TABLE)
+      .update({ analysis_status: 'pending' })
+      .eq('analysis_status', 'processing')
+      .lt('updated_at', cutoff)
+      .select('id');
+    if (error) throw error;
+    return (data || []).length;
   },
 
   async updateStatus(id, status) {
@@ -311,6 +399,22 @@ const CandidateRepo = {
       .select('id', { count: 'exact', head: true });
     if (error) throw error;
     return count || 0;
+  },
+
+  // GDPR retention: delete candidates older than `days` (by created_at), EXCEPT
+  // those marked 'Hired' (employees). Returns the removed rows' résumé URLs so
+  // the caller can also delete the stored files.
+  async purgeOlderThan(days) {
+    if (!days || days <= 0) return [];
+    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+    const { data, error } = await getClient()
+      .from(TABLE)
+      .delete()
+      .lt('created_at', cutoff)
+      .neq('status', 'Hired')
+      .select('id, resume_url');
+    if (error) throw error;
+    return (data || []).map((r) => ({ _id: r.id, resumeUrl: r.resume_url }));
   },
 };
 

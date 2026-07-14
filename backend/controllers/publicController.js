@@ -14,6 +14,50 @@ const resolveAiConfig = async () => {
   }
 };
 
+// Auto-grade a submitted quiz against the job's answer key (server-side only).
+// MCQ questions are scored; text questions are stored for manual review.
+const scoreQuiz = (quiz, answers, meta = {}) => {
+  const byId = {};
+  (answers || []).forEach((a) => {
+    if (a && a.questionId != null) byId[a.questionId] = a.answer;
+  });
+
+  let correct = 0;
+  let totalScored = 0;
+  const detail = quiz.questions.map((q) => {
+    const given = byId[q.id];
+    if (q.type === 'mcq') {
+      totalScored += 1;
+      const idx = Number.isInteger(given) ? given : parseInt(given, 10);
+      const isCorrect = idx === q.correctIndex;
+      if (isCorrect) correct += 1;
+      return {
+        questionId: q.id,
+        question: q.question,
+        type: 'mcq',
+        answerIndex: Number.isInteger(idx) ? idx : null,
+        answerText: q.options?.[idx] ?? '',
+        correct: isCorrect,
+        correctAnswer: q.options?.[q.correctIndex] ?? '',
+      };
+    }
+    return { questionId: q.id, question: q.question, type: 'text', answerText: given == null ? '' : String(given) };
+  });
+
+  const timeSpentSeconds = Number.isFinite(+meta.timeSpentSeconds) ? +meta.timeSpentSeconds : null;
+  const tabSwitches = Number.isFinite(+meta.tabSwitches) ? +meta.tabSwitches : 0;
+
+  return {
+    score: totalScored ? Math.round((correct / totalScored) * 100) : null,
+    correct,
+    totalScored,
+    answers: detail,
+    timeSpentSeconds,
+    tabSwitches,
+    submittedAt: new Date().toISOString(),
+  };
+};
+
 // @desc    Public list of open jobs (careers page)
 // @route   GET /api/public/jobs
 // @access  Public
@@ -56,9 +100,10 @@ exports.apply = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Name, email and a job are required.' });
     }
 
-    // 1) Job must exist and be open.
-    const job = await JobRepo.findPublicById(jobId);
-    if (!job) {
+    // 1) Job must exist and be open. Use the FULL job (with quiz answer keys) so
+    //    we can score server-side — never trust the client for correctness.
+    const job = await JobRepo.findById(jobId);
+    if (!job || job.status !== 'Active') {
       return res.status(404).json({ success: false, message: 'This position is no longer accepting applications.' });
     }
 
@@ -73,15 +118,21 @@ exports.apply = async (req, res) => {
       }
     } catch (_) { /* ignore malformed answers */ }
 
-    // 3) Extract résumé text (best-effort).
-    let extractedText = '';
-    try {
-      extractedText = await ParserService.extractText(req.file.buffer, req.file.mimetype, req.file.originalname);
-    } catch (parseErr) {
-      console.warn('Apply: résumé parse failed:', parseErr.message);
+    // 2b) Score the quiz (if the job has one) — MCQ is auto-graded server-side.
+    let quizResult = {};
+    if (job.quiz && Array.isArray(job.quiz.questions) && job.quiz.questions.length) {
+      let quizAnswers = [];
+      try {
+        const parsed = typeof req.body.quizAnswers === 'string' ? JSON.parse(req.body.quizAnswers) : req.body.quizAnswers;
+        if (Array.isArray(parsed)) quizAnswers = parsed;
+      } catch (_) { /* ignore */ }
+      quizResult = scoreQuiz(job.quiz, quizAnswers, {
+        timeSpentSeconds: req.body.quizTimeSpent,
+        tabSwitches: req.body.quizTabSwitches,
+      });
     }
 
-    // 4) Store the résumé (required — a candidate must have a résumé on file).
+    // 3) Store the résumé (required — a candidate must have a résumé on file).
     let stored;
     try {
       stored = await StorageService.uploadResume(req.file.buffer, req.file.originalname, req.file.mimetype);
@@ -90,37 +141,22 @@ exports.apply = async (req, res) => {
       return res.status(502).json({ success: false, message: 'We could not store your résumé. Please try again.' });
     }
 
-    // 5) AI analysis — BEST EFFORT. An applicant must never be blocked because
-    //    AI is unconfigured or rate-limited; scores are attached only if they work.
-    let ai = null;
-    if (extractedText) {
-      try {
-        ai = await AIService.analyzeResume(extractedText, job, await resolveAiConfig());
-      } catch (aiErr) {
-        console.warn('Apply: AI analysis skipped:', aiErr.message);
-      }
-    }
-
-    // 6) Create the candidate from the applicant's own details (AI fills the rest).
+    // 4) Create the candidate from the applicant's own details and QUEUE the
+    //    résumé for background AI analysis. Applicants are never blocked by AI
+    //    being unconfigured/rate-limited — the worker attaches scores later.
     const candidate = await CandidateRepo.create({
-      name: name.trim() || ai?.name || 'Applicant',
+      name: name.trim(),
       email: String(email).trim().toLowerCase(),
-      phone: (phone || ai?.phone || '').trim(),
+      phone: (phone || '').trim(),
       resumeUrl: stored.url,
-      skills: ai?.skills || [],
-      education: ai?.education || [],
-      experience: ai?.experience || [],
-      projects: ai?.projects || [],
-      certifications: ai?.certifications || [],
-      languages: ai?.languages || [],
-      githubUrl: ai?.githubUrl || '',
-      linkedInUrl: ai?.linkedInUrl || '',
-      portfolioUrl: ai?.portfolioUrl || '',
       jobId: job._id,
       status: 'Applied',
       source: 'Application',
       screeningAnswers,
-      aiAnalysis: ai?.aiAnalysis || {},
+      quizResult,
+      consentAt: new Date().toISOString(), // applicant consented on the apply form
+      analysisStatus: 'pending',
+      aiAnalysis: {},
     });
 
     return res.status(201).json({

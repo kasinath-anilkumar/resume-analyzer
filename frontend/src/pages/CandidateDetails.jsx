@@ -33,7 +33,8 @@ import {
   AlertTriangle,
   MessageSquare,
   Award,
-  Gauge
+  Gauge,
+  ClipboardList
 } from 'lucide-react';
 
 // Dynamic score coloring: green (strong) / amber (moderate) / red (weak).
@@ -99,9 +100,9 @@ const CandidateDetails = () => {
     setTimeout(() => setActionMsg({ type: '', text: '' }), 5000);
   };
 
-  const fetchCandidate = async () => {
+  const fetchCandidate = async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       const res = await api.get(`/candidates/${id}`);
       if (res.data.success) {
         setCandidate(res.data.data);
@@ -110,13 +111,21 @@ const CandidateDetails = () => {
       console.error(err);
       setError('Could not retrieve candidate details.');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
   useEffect(() => {
     fetchCandidate();
   }, [id]);
+
+  // Poll while the background worker is still analyzing this candidate.
+  useEffect(() => {
+    if (!candidate || !['pending', 'processing'].includes(candidate.analysisStatus)) return undefined;
+    const t = setTimeout(() => fetchCandidate(true), 4000);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [candidate]);
 
   // Load active jobs for the "move to job" control (HR only).
   useEffect(() => {
@@ -197,6 +206,21 @@ const CandidateDetails = () => {
   };
 
   const handlePrint = () => window.print();
+
+  // GDPR: download everything held for this candidate as JSON.
+  const handleExport = async () => {
+    try {
+      const res = await api.get(`/candidates/${id}/export`, { responseType: 'blob' });
+      const url = URL.createObjectURL(res.data);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `candidate-${(candidate?.name || 'export').replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      flash('error', 'Could not export candidate data.');
+    }
+  };
 
   const handleAddNote = async (e) => {
     e.preventDefault();
@@ -315,6 +339,11 @@ const CandidateDetails = () => {
                   Applied via Careers
                 </span>
               )}
+              {candidate.consentAt && (
+                <span title={`Consent given: ${new Date(candidate.consentAt).toLocaleString()}`} className="text-[9px] text-slate-400">
+                  ✓ Consented {new Date(candidate.consentAt).toLocaleDateString()}
+                </span>
+              )}
             </p>
           </div>
         </div>
@@ -363,6 +392,20 @@ const CandidateDetails = () => {
         </div>
       </div>
 
+      {/* Analysis status banner */}
+      {['pending', 'processing'].includes(candidate.analysisStatus) && (
+        <div className="p-3 text-xs rounded-xl border bg-brand-500/10 border-brand-500/20 text-brand-600 dark:text-brand-400 flex items-center gap-2">
+          <Loader2 size={14} className="animate-spin flex-shrink-0" />
+          <span>AI is analyzing this résumé — scores and insights will appear here automatically in a few seconds.</span>
+        </div>
+      )}
+      {candidate.analysisStatus === 'failed' && (
+        <div className="p-3 text-xs rounded-xl border bg-rose-500/10 border-rose-500/20 text-rose-600 dark:text-rose-400 flex items-start gap-2">
+          <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
+          <span>AI analysis could not be completed{candidate.analysisError ? `: ${candidate.analysisError}` : '.'} {canManage && 'You can retry with “Re-run AI Analysis”.'}</span>
+        </div>
+      )}
+
       {/* Action feedback */}
       {actionMsg.text && (
         <div className={`p-3 text-xs rounded-xl flex items-center border ${
@@ -403,6 +446,17 @@ const CandidateDetails = () => {
           <Printer size={14} />
           <span>Print / PDF</span>
         </button>
+
+        {canManage && (
+          <button
+            onClick={handleExport}
+            title="Download all data held for this candidate (GDPR subject-access request)"
+            className="flex items-center space-x-1.5 px-3 py-2 border border-slate-200 dark:border-darkBorder hover:bg-slate-50 dark:hover:bg-slate-800/50 text-slate-600 dark:text-slate-300 rounded-xl text-xs font-semibold transition"
+          >
+            <FileText size={14} />
+            <span>Export Data</span>
+          </button>
+        )}
 
         {canManage && (
           <>
@@ -830,6 +884,47 @@ const CandidateDetails = () => {
               )}
             </div>
           </div>
+
+          {/* Screening quiz result */}
+          {(candidate.quizResult?.answers?.length > 0 || candidate.quizResult?.score != null) && (
+            <div className="p-4 bg-white dark:bg-darkCard border border-slate-200/60 dark:border-darkBorder rounded-xl shadow-premium dark:shadow-premium-dark space-y-3">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <h3 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest flex items-center">
+                  <ClipboardList size={14} className="mr-2 text-brand-500" /> Screening Quiz
+                </h3>
+                <div className="flex items-center gap-2">
+                  {candidate.quizResult.score != null && (
+                    <span className={`text-sm font-black px-2.5 py-0.5 rounded-lg border ${scoreBox(candidate.quizResult.score)} ${scoreText(candidate.quizResult.score)}`}>
+                      {candidate.quizResult.score}% <span className="text-[10px] font-semibold opacity-70">({candidate.quizResult.correct}/{candidate.quizResult.totalScored})</span>
+                    </span>
+                  )}
+                  {candidate.quizResult.tabSwitches > 0 && (
+                    <span title="Times the applicant left the tab during the quiz" className="inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 border border-amber-500/20">
+                      <AlertTriangle size={10} /> {candidate.quizResult.tabSwitches} tab-switch{candidate.quizResult.tabSwitches > 1 ? 'es' : ''}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="space-y-2">
+                {(candidate.quizResult.answers || []).map((qa, idx) => (
+                  <div key={idx} className={`p-3 rounded-xl border ${qa.type === 'mcq' ? (qa.correct ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-rose-500/5 border-rose-500/20') : 'bg-slate-50 dark:bg-slate-900/40 border-slate-200/50 dark:border-darkBorder/40'}`}>
+                    <p className="text-[11px] font-bold text-slate-700 dark:text-slate-300">{idx + 1}. {qa.question}</p>
+                    {qa.type === 'mcq' ? (
+                      <div className="mt-1 text-[11px] space-y-0.5">
+                        <p className={qa.correct ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}>
+                          {qa.correct ? <CheckCircle size={11} className="inline mr-1" /> : <XCircle size={11} className="inline mr-1" />}
+                          Answered: <span className="font-semibold">{qa.answerText || '—'}</span>
+                        </p>
+                        {!qa.correct && <p className="text-slate-500">Correct: <span className="font-semibold">{qa.correctAnswer}</span></p>}
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-1 whitespace-pre-line">{qa.answerText || <span className="italic text-slate-400">No answer</span>}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Application screening responses (public applicants) */}
           {candidate.screeningAnswers?.length > 0 && (

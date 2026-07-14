@@ -8,6 +8,7 @@ const {
   addNote,
   deleteNote,
   deleteCandidate,
+  exportCandidate,
   getDashboardStats,
   scheduleInterview,
   deleteInterview,
@@ -31,6 +32,9 @@ router.route('/:id')
   .delete(protect, authorize('Admin', 'Recruiter'), deleteCandidate);
 
 router.put('/:id/status', protect, authorize('Admin', 'Recruiter'), updateCandidateStatus);
+
+// GDPR: export all data held for a candidate (subject-access request)
+router.get('/:id/export', protect, authorize('Admin', 'Recruiter'), exportCandidate);
 
 // Move to a different job / re-run AI analysis
 router.put('/:id/job', protect, authorize('Admin', 'Recruiter'), moveCandidateJob);

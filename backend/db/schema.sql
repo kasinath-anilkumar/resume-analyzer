@@ -53,12 +53,14 @@ create table if not exists jobs (
   status           text not null default 'Active'
                    check (status in ('Active','Closed','Draft','Archived')),
   screening_questions jsonb not null default '[]', -- optional applicant questions (array of strings)
+  quiz             jsonb not null default '{}',    -- { timeLimitMinutes, questions:[{id,type,question,options,correctIndex}] }
   created_by       uuid references users(id) on delete set null,
   created_at       timestamptz not null default now(),
   updated_at       timestamptz not null default now()
 );
 create index if not exists jobs_status_idx on jobs(status);
 alter table jobs add column if not exists screening_questions jsonb not null default '[]';
+alter table jobs add column if not exists quiz jsonb not null default '{}';
 
 -- ---------------------------------------------------------------------------
 --  candidates
@@ -95,6 +97,16 @@ create index if not exists candidates_email_idx on candidates(lower(email));
 alter table candidates add column if not exists interviews jsonb not null default '[]';
 alter table candidates add column if not exists source text not null default 'Manual';        -- Manual | Application
 alter table candidates add column if not exists screening_answers jsonb not null default '[]'; -- [{question, answer}]
+-- Async analysis pipeline: résumé parsing + AI scoring runs in a background
+-- worker so uploads return instantly. Existing rows default to 'completed'.
+alter table candidates add column if not exists analysis_status text not null default 'completed'
+  check (analysis_status in ('pending','processing','completed','failed'));
+alter table candidates add column if not exists analysis_error text;
+create index if not exists candidates_analysis_status_idx on candidates(analysis_status);
+-- Screening quiz result (auto-scored MCQ): { score, correct, totalScored, answers[], timeSpentSeconds, tabSwitches }
+alter table candidates add column if not exists quiz_result jsonb not null default '{}';
+-- GDPR consent timestamp (set when an applicant submits via the public portal)
+alter table candidates add column if not exists consent_at timestamptz;
 
 -- ---------------------------------------------------------------------------
 --  notifications
@@ -125,6 +137,7 @@ create table if not exists settings (
   ai_provider  text    not null default 'mock',
   ai_api_key   text    not null default '',
   ai_model     text    not null default '',
+  retention_days integer not null default 0, -- 0 = keep forever; >0 auto-purges old candidates (GDPR)
   updated_by   uuid references users(id) on delete set null,
   created_at   timestamptz not null default now(),
   updated_at   timestamptz not null default now(),
@@ -133,5 +146,27 @@ create table if not exists settings (
 -- For installs created before the ai_model column existed:
 alter table settings add column if not exists ai_model text not null default '';
 
+alter table settings add column if not exists retention_days integer not null default 0;
+
 -- The backend seeds the single settings row (with sensible default departments
 -- and locations) on first read, so no INSERT is required here.
+
+-- ---------------------------------------------------------------------------
+--  audit_log — accountability trail (who did what). No FK to users so entries
+--  survive even if the actor is later deleted.
+-- ---------------------------------------------------------------------------
+create table if not exists audit_log (
+  id          uuid primary key default gen_random_uuid(),
+  actor_id    uuid,
+  actor_name  text,
+  actor_role  text,
+  action      text not null,        -- e.g. 'user.create', 'candidate.delete', 'settings.ai_key.update'
+  entity_type text,                 -- user | candidate | job | settings | auth
+  entity_id   text,
+  summary     text,                 -- human-readable one-liner
+  meta        jsonb not null default '{}',
+  created_at  timestamptz not null default now()
+);
+create index if not exists audit_log_created_at_idx on audit_log(created_at desc);
+create index if not exists audit_log_action_idx on audit_log(action);
+create index if not exists audit_log_entity_idx on audit_log(entity_type);

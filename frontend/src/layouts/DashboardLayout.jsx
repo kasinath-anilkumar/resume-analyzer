@@ -31,7 +31,8 @@ import {
   Settings,
   UploadCloud,
   UserCog,
-  Sparkles
+  Sparkles,
+  ScrollText
 } from 'lucide-react';
 
 const DashboardLayout = () => {
@@ -97,6 +98,7 @@ const DashboardLayout = () => {
     { name: 'Compare Talents', path: '/compare', icon: ArrowLeftRight, roles: ['Admin', 'Recruiter', 'Hiring Manager'] },
     { name: 'Notifications', path: '/notifications', icon: Bell, roles: ['Admin'] },
     { name: 'User Management', path: '/users', icon: UserCog, roles: ['Admin'] },
+    { name: 'Audit Log', path: '/audit', icon: ScrollText, roles: ['Admin'] },
     { name: 'Settings', path: '/settings', icon: Settings, roles: ['Admin', 'Recruiter', 'Hiring Manager'] },
   ];
 

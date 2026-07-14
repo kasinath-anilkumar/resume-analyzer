@@ -20,6 +20,7 @@ import Pipeline from './pages/Pipeline';
 import Compare from './pages/Compare';
 import Settings from './pages/Settings';
 import UsersPage from './pages/Users';
+import AuditLog from './pages/AuditLog';
 import Notifications from './pages/Notifications';
 import { Loader2 } from 'lucide-react';
 
@@ -76,6 +77,7 @@ function App() {
               <Route path="compare" element={<Compare />} />
               <Route path="settings" element={<Settings />} />
               <Route path="users" element={<UsersPage />} />
+              <Route path="audit" element={<AuditLog />} />
               <Route path="notifications" element={<Notifications />} />
             </Route>
 

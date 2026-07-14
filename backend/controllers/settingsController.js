@@ -1,5 +1,6 @@
 const SettingsRepo = require('../models/settingsRepo');
 const AIService = require('../services/aiService');
+const AuditRepo = require('../models/auditRepo');
 
 // Build a client-safe view of settings. The raw API key is NEVER returned —
 // only a masked hint. AI-related config (provider, model, key status) is
@@ -24,6 +25,7 @@ const sanitizeSettings = (settings, isAdmin) => {
     aiModel: settings.aiModel || '',
     aiKeyConfigured: !!key,
     aiKeyMasked: key ? `${'•'.repeat(Math.max(0, key.length - 4))}${key.slice(-4)}` : '',
+    retentionDays: settings.retentionDays || 0,
   };
 };
 
@@ -107,14 +109,16 @@ exports.previewModels = async (req, res) => {
 // @access  Private (Admin, Recruiter)
 exports.updateSettings = async (req, res) => {
   try {
-    const { departments, locations, minAiScore, aiApiKey, aiModel } = req.body;
+    const { departments, locations, minAiScore, aiApiKey, aiModel, retentionDays } = req.body;
 
-    // Only an Admin may add/change/clear the AI provider key or model.
-    const touchingAi = typeof aiApiKey === 'string' || typeof aiModel === 'string';
-    if (touchingAi && req.user.role !== 'Admin') {
+    // Only an Admin may change the AI key/model or the data-retention policy
+    // (retention auto-deletes candidate data, so it's Admin-gated).
+    const touchingAdminOnly =
+      typeof aiApiKey === 'string' || typeof aiModel === 'string' || retentionDays !== undefined;
+    if (touchingAdminOnly && req.user.role !== 'Admin') {
       return res.status(403).json({
         success: false,
-        message: 'Only an administrator can change the AI provider key or model.',
+        message: 'Only an administrator can change the AI provider key/model or data-retention policy.',
       });
     }
 
@@ -154,6 +158,7 @@ exports.updateSettings = async (req, res) => {
     if (departments !== undefined) patch.departments = departments;
     if (locations !== undefined) patch.locations = locations;
     if (minAiScore !== undefined) patch.minAiScore = minAiScore;
+    if (retentionDays !== undefined) patch.retentionDays = retentionDays;
     if (aiUpdate) {
       patch.aiApiKey = aiUpdate.aiApiKey;
       patch.aiProvider = aiUpdate.aiProvider;
@@ -165,6 +170,18 @@ exports.updateSettings = async (req, res) => {
     if (typeof aiModel === 'string') patch.aiModel = aiModel.trim();
 
     const settings = await SettingsRepo.update(patch, req.user.id);
+
+    // Audit the change, calling out the sensitive fields explicitly.
+    const changed = [];
+    if (aiUpdate) changed.push(aiUpdate.aiApiKey ? `AI key (→ ${aiUpdate.aiProvider})` : 'AI key cleared');
+    if (typeof aiModel === 'string') changed.push(`AI model → ${aiModel || 'default'}`);
+    if (retentionDays !== undefined) changed.push(`retention → ${Number(retentionDays) || 0} days`);
+    if (departments !== undefined) changed.push('departments');
+    if (locations !== undefined) changed.push('locations');
+    if (minAiScore !== undefined) changed.push('min AI score');
+    if (changed.length) {
+      AuditRepo.log(req.user, 'settings.update', { entityType: 'settings', entityId: 'settings', summary: `Updated settings: ${changed.join(', ')}`, meta: { changed } });
+    }
 
     // Note: we intentionally do NOT fetch the model list here. Saving already
     // makes one external call (validateKey); a second call (listModels) added

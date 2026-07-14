@@ -17,10 +17,46 @@ const toApi = (row) =>
     numberOpenings: row.number_openings,
     status: row.status,
     screeningQuestions: row.screening_questions || [],
+    quiz: row.quiz && typeof row.quiz === 'object' ? row.quiz : {},
     createdBy: row.created_by,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+
+// Coerce a quiz object into a safe, well-formed shape for storage.
+const normalizeQuiz = (quiz) => {
+  if (!quiz || typeof quiz !== 'object' || !Array.isArray(quiz.questions)) return {};
+  const questions = quiz.questions
+    .map((q, i) => {
+      const question = String(q.question || '').trim();
+      if (!question) return null;
+      const type = q.type === 'text' ? 'text' : 'mcq';
+      if (type === 'text') return { id: q.id || `q${i}`, type, question };
+      const options = (Array.isArray(q.options) ? q.options : []).map((o) => String(o)).filter((o) => o.trim());
+      if (options.length < 2) return null; // an MCQ needs at least 2 options
+      let correctIndex = Number.isInteger(q.correctIndex) ? q.correctIndex : 0;
+      if (correctIndex < 0 || correctIndex >= options.length) correctIndex = 0;
+      return { id: q.id || `q${i}`, type, question, options, correctIndex };
+    })
+    .filter(Boolean);
+  if (!questions.length) return {};
+  const t = parseInt(quiz.timeLimitMinutes, 10);
+  return { timeLimitMinutes: Number.isFinite(t) && t > 0 ? t : null, questions };
+};
+
+// Public view of a quiz — strips the correct answers so applicants can't cheat.
+const publicQuiz = (quiz) => {
+  if (!quiz || !Array.isArray(quiz.questions)) return {};
+  return {
+    timeLimitMinutes: quiz.timeLimitMinutes || null,
+    questions: quiz.questions.map((q) => ({
+      id: q.id,
+      type: q.type,
+      question: q.question,
+      ...(q.type === 'mcq' ? { options: q.options } : {}),
+    })),
+  };
+};
 
 const asArray = (v) => {
   if (Array.isArray(v)) return v.map((s) => String(s).trim()).filter(Boolean);
@@ -48,6 +84,7 @@ const toRow = (data = {}) => {
       ? data.screeningQuestions.map((q) => String(q).trim()).filter(Boolean)
       : [];
   }
+  if (data.quiz !== undefined) row.quiz = normalizeQuiz(data.quiz);
   return row;
 };
 
@@ -137,6 +174,7 @@ const JobRepo = {
       employmentType: j.employmentType,
       location: j.location,
       screeningQuestions: j.screeningQuestions,
+      quiz: publicQuiz(j.quiz),
       createdAt: j.createdAt,
     };
   },

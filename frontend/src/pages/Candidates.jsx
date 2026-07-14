@@ -59,9 +59,9 @@ const Candidates = () => {
     fetchData();
   }, []);
 
-  const fetchCandidates = async () => {
+  const fetchCandidates = async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       const queryParams = new URLSearchParams();
       if (search) queryParams.append('search', search);
       if (selectedJobId) queryParams.append('jobId', selectedJobId);
@@ -82,9 +82,19 @@ const Candidates = () => {
     } catch (err) {
       console.error('Error fetching candidates', err);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
+
+  // While any candidate is still being analyzed, silently refresh so scores
+  // appear as the background worker finishes.
+  useEffect(() => {
+    const anyPending = candidates.some((c) => ['pending', 'processing'].includes(c.analysisStatus));
+    if (!anyPending) return undefined;
+    const t = setTimeout(() => fetchCandidates(true), 4000);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [candidates]);
 
   useEffect(() => {
     fetchCandidates();
@@ -375,10 +385,25 @@ const Candidates = () => {
                             )}
                           </div>
                           <div className="flex items-center gap-1.5 mt-0.5">
-                            <span className="text-[10px] text-slate-400">{cand.email}</span>
-                            {cand.aiAnalysis?.screeningVerdict && (
+                            {!cand.email?.endsWith('@pending.local') && (
+                              <span className="text-[10px] text-slate-400">{cand.email}</span>
+                            )}
+                            {['pending', 'processing'].includes(cand.analysisStatus) ? (
+                              <span className="inline-flex items-center gap-1 text-[8.5px] font-bold px-1.5 py-0.5 rounded bg-brand-500/10 text-brand-600 border border-brand-500/20">
+                                <Loader2 size={9} className="animate-spin" /> Analyzing
+                              </span>
+                            ) : cand.analysisStatus === 'failed' ? (
+                              <span title={cand.analysisError} className="inline-flex items-center gap-0.5 text-[8.5px] font-bold px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-600 border border-rose-500/20">
+                                <AlertTriangle size={9} /> Analysis failed
+                              </span>
+                            ) : cand.aiAnalysis?.screeningVerdict && (
                               <span className={`text-[8.5px] font-bold px-1.5 py-0.5 rounded ${verdictBadge(cand.aiAnalysis.screeningVerdict)}`}>
                                 {cand.aiAnalysis.screeningVerdict}
+                              </span>
+                            )}
+                            {cand.quizResult?.score != null && (
+                              <span title="Screening quiz score" className="text-[8.5px] font-bold px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
+                                Quiz {cand.quizResult.score}%
                               </span>
                             )}
                           </div>
