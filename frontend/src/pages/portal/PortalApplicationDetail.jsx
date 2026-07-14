@@ -1,0 +1,134 @@
+import React, { useState, useEffect } from 'react';
+import { useParams, Link } from 'react-router-dom';
+import portalApi from '../../services/portalApi';
+import PortalShell, { statusPill } from './PortalShell';
+import {
+  Loader2, ChevronLeft, MapPin, Clock, Briefcase, Calendar, CheckCircle2,
+  Circle, CalendarClock, Video, Building2, AlertCircle
+} from 'lucide-react';
+
+const fmtDateTime = (d) => (d ? new Date(d).toLocaleString(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'To be scheduled');
+
+const PortalApplicationDetail = () => {
+  const { id } = useParams();
+  const [app, setApp] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [notFound, setNotFound] = useState(false);
+
+  useEffect(() => {
+    portalApi.get(`/applications/${id}`)
+      .then((res) => { if (res.data.success) setApp(res.data.data); else setNotFound(true); })
+      .catch(() => setNotFound(true))
+      .finally(() => setLoading(false));
+  }, [id]);
+
+  if (loading) {
+    return <PortalShell><div className="flex justify-center py-24"><Loader2 size={28} className="animate-spin text-[#c5a880]" /></div></PortalShell>;
+  }
+  if (notFound || !app) {
+    return (
+      <PortalShell>
+        <div className="text-center py-20">
+          <AlertCircle className="mx-auto text-[#c5a880] mb-3" size={32} />
+          <h3 className="text-xs font-bold uppercase tracking-widest">Application not found</h3>
+          <Link to="/portal/dashboard" className="inline-flex items-center gap-1 text-[10px] uppercase tracking-widest text-[#c5a880] mt-4 hover:underline"><ChevronLeft size={13} /> Back to my applications</Link>
+        </div>
+      </PortalShell>
+    );
+  }
+
+  const j = app.job || {};
+  return (
+    <PortalShell>
+      <Link to="/portal/dashboard" className="inline-flex items-center text-[10px] font-semibold uppercase tracking-widest text-slate-500 hover:text-[#c5a880] mb-6">
+        <ChevronLeft size={14} className="mr-1 text-[#c5a880]" /> My applications
+      </Link>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
+        {/* Status + timeline */}
+        <div className="lg:col-span-2 space-y-6">
+          <div className="bg-white/80 dark:bg-[#151210]/80 border luxury-border-thin p-8">
+            <div className="flex items-start justify-between gap-4 flex-wrap">
+              <div>
+                <span className="text-[9px] font-bold text-[#c5a880] uppercase tracking-[0.25em]">{j.department || 'Parakkat Jewels'}</span>
+                <h1 className="text-xl sm:text-2xl font-light uppercase tracking-widest mt-2">{j.title}</h1>
+                <div className="flex flex-wrap gap-x-5 gap-y-1 text-[10px] tracking-widest uppercase text-slate-500 mt-3">
+                  {j.location && <span className="flex items-center gap-1.5"><MapPin size={11} className="text-[#c5a880]" /> {j.location}</span>}
+                  {j.employmentType && <span className="flex items-center gap-1.5"><Clock size={11} className="text-[#c5a880]" /> {j.employmentType}</span>}
+                  <span className="flex items-center gap-1.5"><Calendar size={11} className="text-[#c5a880]" /> Applied {new Date(app.appliedAt).toLocaleDateString()}</span>
+                </div>
+              </div>
+              <span className={`text-[10px] font-bold px-3 py-1.5 rounded-none border uppercase tracking-wider ${statusPill(app.outcome)}`}>{app.status}</span>
+            </div>
+
+            {/* Timeline */}
+            <div className="mt-8 pt-6 border-t luxury-border-thin">
+              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-[0.2em] block mb-5">Application Progress</span>
+              <ol className="space-y-4">
+                {app.timeline.map((step, i) => {
+                  const negativeFinal = app.outcome === 'negative' && i === app.timeline.length - 1;
+                  return (
+                    <li key={i} className="flex items-center gap-3">
+                      {step.done ? (
+                        <CheckCircle2 size={18} className={negativeFinal ? 'text-rose-500' : 'text-[#c5a880]'} />
+                      ) : step.current ? (
+                        <div className={`w-[18px] h-[18px] rounded-full border-2 ${negativeFinal ? 'border-rose-500' : 'border-[#c5a880]'} flex items-center justify-center`}>
+                          <div className={`w-1.5 h-1.5 rounded-full ${negativeFinal ? 'bg-rose-500' : 'bg-[#c5a880]'}`} />
+                        </div>
+                      ) : (
+                        <Circle size={18} className="text-slate-300 dark:text-slate-700" />
+                      )}
+                      <span className={`text-xs tracking-wide uppercase ${step.current ? 'font-bold text-[#1c1c1c] dark:text-[#f5efe9]' : step.done ? 'text-slate-600 dark:text-slate-300' : 'text-slate-400'}`}>
+                        {negativeFinal ? 'Decision — Not Selected' : step.label}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ol>
+            </div>
+          </div>
+
+          {/* Interviews */}
+          {app.interviews?.length > 0 && (
+            <div className="bg-white/80 dark:bg-[#151210]/80 border luxury-border-thin p-8">
+              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-[0.2em] flex items-center gap-1.5 mb-5"><CalendarClock size={13} className="text-[#c5a880]" /> Interviews</span>
+              <div className="space-y-4">
+                {app.interviews.map((iv, i) => (
+                  <div key={i} className="p-4 border luxury-border-thin flex items-start gap-3">
+                    {iv.mode === 'Online' ? <Video size={16} className="text-[#c5a880] mt-0.5" /> : <Building2 size={16} className="text-[#c5a880] mt-0.5" />}
+                    <div className="flex-1">
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <span className="text-xs font-semibold uppercase tracking-wide">{iv.stage}</span>
+                        <span className="text-[10px] tracking-widest uppercase text-[#c5a880]">{fmtDateTime(iv.scheduledAt)}</span>
+                      </div>
+                      <div className="text-[10px] tracking-wide text-slate-500 mt-1 space-y-0.5">
+                        {iv.mode && <div className="uppercase">{iv.mode}</div>}
+                        {iv.locationOrLink && (iv.mode === 'Online'
+                          ? <a href={iv.locationOrLink} target="_blank" rel="noreferrer" className="text-[#c5a880] hover:underline break-all">{iv.locationOrLink}</a>
+                          : <div>{iv.locationOrLink}</div>)}
+                        {iv.interviewer && <div>With {iv.interviewer}</div>}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Role summary */}
+        <div className="bg-white/80 dark:bg-[#151210]/80 border luxury-border-thin p-8 lg:sticky lg:top-24">
+          <span className="text-[9px] font-bold text-slate-400 uppercase tracking-[0.2em] flex items-center gap-1.5 mb-4"><Briefcase size={12} className="text-[#c5a880]" /> About this role</span>
+          <p className="text-[13px] text-slate-600 dark:text-slate-400 leading-loose tracking-wide whitespace-pre-line font-light">
+            {j.description || 'Role details are available on the careers page.'}
+          </p>
+          <Link to="/careers" className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-widest text-[#c5a880] mt-6 hover:underline">
+            <Briefcase size={12} /> Browse more roles
+          </Link>
+        </div>
+      </div>
+    </PortalShell>
+  );
+};
+
+export default PortalApplicationDetail;

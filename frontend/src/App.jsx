@@ -9,6 +9,12 @@ import Login from './pages/Login';
 import ResetPassword from './pages/ResetPassword';
 import Careers from './pages/Careers';
 import CareerApply from './pages/CareerApply';
+import { ApplicantAuthProvider, useApplicantAuth } from './context/ApplicantAuthContext';
+import PortalLogin from './pages/portal/PortalLogin';
+import PortalRegister from './pages/portal/PortalRegister';
+import PortalReset from './pages/portal/PortalReset';
+import PortalDashboard from './pages/portal/PortalDashboard';
+import PortalApplicationDetail from './pages/portal/PortalApplicationDetail';
 import Dashboard from './pages/Dashboard';
 import Jobs from './pages/Jobs';
 import JobForm from './pages/JobForm';
@@ -44,18 +50,41 @@ const ProtectedRoute = ({ children }) => {
   return children;
 };
 
+// Guard for the candidate-facing careers portal (separate identity from recruiters).
+const RequirePortalAuth = ({ children }) => {
+  const { applicant, loading } = useApplicantAuth();
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-luxury-gradient text-slate-500">
+        <Loader2 size={24} className="animate-spin text-[#c5a880]" />
+      </div>
+    );
+  }
+  if (!applicant) return <Navigate to="/portal/login" replace />;
+  return children;
+};
+
 function App() {
   return (
     <ThemeProvider>
       <AuthProvider>
         <UploadProvider>
           <PosterExtractionProvider>
+          <ApplicantAuthProvider>
           <Router>
             <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="/careers" element={<Careers />} />
             <Route path="/careers/:id" element={<CareerApply />} />
+
+            {/* Candidate-facing careers portal */}
+            <Route path="/portal/login" element={<PortalLogin />} />
+            <Route path="/portal/register" element={<PortalRegister />} />
+            <Route path="/portal/reset-password" element={<PortalReset />} />
+            <Route path="/portal" element={<Navigate to="/portal/dashboard" replace />} />
+            <Route path="/portal/dashboard" element={<RequirePortalAuth><PortalDashboard /></RequirePortalAuth>} />
+            <Route path="/portal/applications/:id" element={<RequirePortalAuth><PortalApplicationDetail /></RequirePortalAuth>} />
 
             <Route
               path="/"
@@ -85,6 +114,7 @@ function App() {
             <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </Router>
+          </ApplicantAuthProvider>
           </PosterExtractionProvider>
         </UploadProvider>
       </AuthProvider>

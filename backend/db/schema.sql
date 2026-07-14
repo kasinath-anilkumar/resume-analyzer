@@ -35,6 +35,24 @@ alter table users add column if not exists reset_token_hash text;
 alter table users add column if not exists reset_token_expires timestamptz;
 
 -- ---------------------------------------------------------------------------
+--  applicants  (candidate-facing careers portal accounts — SEPARATE from the
+--  recruiter `users` table above. Applicants self-register on the public
+--  careers portal; they can only ever see their own applications.)
+-- ---------------------------------------------------------------------------
+create table if not exists applicants (
+  id         uuid primary key default gen_random_uuid(),
+  name       text not null,
+  email      text not null unique,           -- stored lowercased
+  password   text not null,                  -- bcrypt hash (never returned to clients)
+  phone      text,
+  reset_token_hash    text,                   -- sha256 of the emailed reset token
+  reset_token_expires timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists applicants_email_idx on applicants(lower(email));
+
+-- ---------------------------------------------------------------------------
 --  jobs
 -- ---------------------------------------------------------------------------
 create table if not exists jobs (
@@ -107,6 +125,11 @@ create index if not exists candidates_analysis_status_idx on candidates(analysis
 alter table candidates add column if not exists quiz_result jsonb not null default '{}';
 -- GDPR consent timestamp (set when an applicant submits via the public portal)
 alter table candidates add column if not exists consent_at timestamptz;
+-- Careers-portal account that owns this application (nullable; anonymous applies
+-- stay null and are matched to a portal account by email). ON DELETE SET NULL so
+-- deleting a portal account never cascades away the application record.
+alter table candidates add column if not exists applicant_id uuid references applicants(id) on delete set null;
+create index if not exists candidates_applicant_id_idx on candidates(applicant_id);
 
 -- ---------------------------------------------------------------------------
 --  notifications

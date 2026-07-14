@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const UserRepo = require('../models/userRepo');
+const ApplicantRepo = require('../models/applicantRepo');
 
 // Protect routes — verify the JWT and load the current user from Supabase.
 const protect = async (req, res, next) => {
@@ -9,6 +10,12 @@ const protect = async (req, res, next) => {
     try {
       token = req.headers.authorization.split(' ')[1];
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+      // Applicant (careers-portal) tokens are signed with the same secret but a
+      // distinct type — they must NEVER authenticate a recruiter route.
+      if (decoded.typ === 'applicant') {
+        return res.status(401).json({ success: false, message: 'Not authorized for this area' });
+      }
 
       req.user = await UserRepo.findById(decoded.id);
       if (!req.user) {
@@ -43,4 +50,30 @@ const authorize = (...roles) => {
   };
 };
 
-module.exports = { protect, authorize };
+// Protect careers-portal routes — verify an APPLICANT token and load the
+// applicant. Kept fully separate from `protect`: a recruiter token cannot
+// satisfy this, and an applicant token cannot satisfy `protect`.
+const protectApplicant = async (req, res, next) => {
+  if (!req.headers.authorization || !req.headers.authorization.startsWith('Bearer')) {
+    return res.status(401).json({ success: false, message: 'Not authorized, no token' });
+  }
+  try {
+    const token = req.headers.authorization.split(' ')[1];
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    if (decoded.typ !== 'applicant') {
+      return res.status(401).json({ success: false, message: 'Not authorized' });
+    }
+    const applicant = await ApplicantRepo.findById(decoded.id);
+    if (!applicant) {
+      return res.status(401).json({ success: false, message: 'Not authorized, account not found' });
+    }
+    // Controllers scope every query to this applicant's own email.
+    req.applicant = { id: applicant._id, email: applicant.email, name: applicant.name };
+    next();
+  } catch (error) {
+    console.error('Applicant auth error:', error.message);
+    return res.status(401).json({ success: false, message: 'Not authorized, token failed' });
+  }
+};
+
+module.exports = { protect, authorize, protectApplicant };

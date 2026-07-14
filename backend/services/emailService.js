@@ -85,6 +85,22 @@ const EmailService = {
     return this.send({ to: user.email, subject: 'Reset your PARAKKAT ATS password', html });
   },
 
+  // Careers-portal (applicant) password reset — brand-appropriate wording.
+  async sendApplicantPasswordReset(applicant, resetLink) {
+    if (!applicant?.email) return { sent: false, skipped: 'no email' };
+    const html = wrap(
+      'Reset your Careers password',
+      `<p>Hi ${esc(applicant.name || 'there')},</p>
+       <p>We received a request to reset the password for your Parakkat Jewels Careers account. Click below — this link expires in 1 hour.</p>
+       <p style="margin:20px 0">
+         <a href="${resetLink}" style="background:#c5a880;color:#1c1c1c;padding:10px 18px;border-radius:6px;text-decoration:none;font-weight:600;display:inline-block">Reset password</a>
+       </p>
+       <p style="font-size:12px;color:#64748b">If the button doesn't work, paste this link into your browser:<br>${esc(resetLink)}</p>
+       <p style="font-size:12px;color:#94a3b8">If you didn't request this, you can safely ignore this email.</p>`
+    );
+    return this.send({ to: applicant.email, subject: 'Reset your Parakkat Careers password', html });
+  },
+
   // Interview invite to a candidate.
   async sendInterviewInvite(candidate, interview, jobTitle) {
     if (!candidate?.email) return { sent: false, skipped: 'no candidate email' };
