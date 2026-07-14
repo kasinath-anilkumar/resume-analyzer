@@ -418,18 +418,37 @@ const CandidateDetails = () => {
         </div>
       )}
 
-      {/* Possible duplicate warning */}
-      {candidate.duplicates?.length > 0 && (
+      {/* Real duplicate: same email applied for THIS SAME role more than once. */}
+      {candidate.duplicates?.some((d) => d.sameJob) && (
         <div className="p-3 text-xs rounded-xl border bg-amber-500/10 border-amber-500/20 text-amber-700 dark:text-amber-400 flex items-start gap-2">
           <AlertCircle size={14} className="mt-0.5 flex-shrink-0" />
           <div className="space-y-1">
             <p className="font-semibold">
-              Possible duplicate — {candidate.duplicates.length} other candidate{candidate.duplicates.length > 1 ? 's' : ''} share this email ({candidate.email}):
+              Possible duplicate — this email ({candidate.email}) has other application{candidate.duplicates.filter((d) => d.sameJob).length > 1 ? 's' : ''} for this same role:
             </p>
             <div className="flex flex-wrap gap-2">
-              {candidate.duplicates.map((d) => (
+              {candidate.duplicates.filter((d) => d.sameJob).map((d) => (
                 <Link key={d._id} to={`/candidates/${d._id}`} className="underline hover:no-underline font-medium">
                   {d.name} · {d.status}
+                </Link>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Informational: the same person also applied for OTHER open roles. */}
+      {candidate.duplicates?.some((d) => !d.sameJob) && (
+        <div className="p-3 text-xs rounded-xl border bg-brand-500/10 border-brand-500/20 text-brand-700 dark:text-brand-400 flex items-start gap-2">
+          <ArrowRightLeft size={14} className="mt-0.5 flex-shrink-0" />
+          <div className="space-y-1">
+            <p className="font-semibold">
+              Also applied for {candidate.duplicates.filter((d) => !d.sameJob).length} other role{candidate.duplicates.filter((d) => !d.sameJob).length > 1 ? 's' : ''}:
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {candidate.duplicates.filter((d) => !d.sameJob).map((d) => (
+                <Link key={d._id} to={`/candidates/${d._id}`} className="underline hover:no-underline font-medium">
+                  {d.jobTitle} · {d.status}
                 </Link>
               ))}
             </div>

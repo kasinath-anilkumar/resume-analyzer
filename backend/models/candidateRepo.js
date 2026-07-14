@@ -80,6 +80,8 @@ const jobLookup = async (jobIds, fields) => {
       ...(fields.includes('required_skills') ? { requiredSkills: j.required_skills || [] } : {}),
       ...(fields.includes('preferred_skills') ? { preferredSkills: j.preferred_skills || [] } : {}),
       ...(fields.includes('description') ? { description: j.description } : {}),
+      ...(fields.includes('location') ? { location: j.location } : {}),
+      ...(fields.includes('employment_type') ? { employmentType: j.employment_type } : {}),
     };
   });
   return map;
@@ -137,23 +139,40 @@ const CandidateRepo = {
       });
     }
 
-    // Flag duplicates: any email that appears on more than one candidate in the
-    // WHOLE table (not just this filtered page) is marked so the UI can badge it.
-    const { data: allEmails } = await getClient().from(TABLE).select('email');
-    const emailCounts = {};
-    (allEmails || []).forEach((r) => {
+    // Detect repeat applications by the same email across the WHOLE table.
+    // A repeat for the SAME job is a true duplicate; a repeat on a DIFFERENT job
+    // just means the person also applied elsewhere — surface THAT (with the
+    // other job's title) rather than badging it as a duplicate.
+    const { data: allApps } = await getClient().from(TABLE).select('id, email, job_id');
+    const byEmail = {};
+    (allApps || []).forEach((r) => {
       const e = String(r.email || '').toLowerCase();
-      if (e) emailCounts[e] = (emailCounts[e] || 0) + 1;
+      if (e) (byEmail[e] = byEmail[e] || []).push(r);
     });
 
-    const jobs = await jobLookup(rows.map((c) => c.jobId), ['title', 'department']);
+    // Resolve titles for every job referenced by the rows AND by any other
+    // application from the same emails, in a single lookup.
+    const jobIdsNeeded = new Set(rows.map((c) => String(c.jobId)));
+    rows.forEach((c) => {
+      (byEmail[String(c.email || '').toLowerCase()] || []).forEach((r) => jobIdsNeeded.add(String(r.job_id)));
+    });
+    const jobs = await jobLookup([...jobIdsNeeded], ['title', 'department']);
+
     return rows.map((c) => {
-      const dupCount = emailCounts[String(c.email || '').toLowerCase()] || 1;
+      const group = byEmail[String(c.email || '').toLowerCase()] || [];
+      const sameJob = group.filter(
+        (r) => String(r.job_id) === String(c.jobId) && String(r.id) !== String(c._id)
+      );
+      // Distinct OTHER jobs this person also applied to.
+      const otherJobIds = [...new Set(
+        group.filter((r) => String(r.job_id) !== String(c.jobId)).map((r) => String(r.job_id))
+      )];
       return {
         ...c,
         jobId: jobs[String(c.jobId)] || { _id: c.jobId, title: 'Unknown', department: 'Unknown' },
-        isDuplicate: dupCount > 1,
-        duplicateCount: dupCount,
+        isDuplicate: sameJob.length > 0, // same email, SAME job = real duplicate
+        duplicateCount: sameJob.length + 1, // total records for this person on this job
+        otherApplications: otherJobIds.map((jid) => ({ _id: jid, title: jobs[jid]?.title || 'Unknown role' })),
       };
     });
   },
@@ -354,14 +373,49 @@ const CandidateRepo = {
     if (excludeId) q = q.neq('id', excludeId);
     const { data, error } = await q;
     if (error) throw error;
-    return (data || []).map((r) => ({
+    const rows = data || [];
+    const jobs = await jobLookup(rows.map((r) => r.job_id), ['title']);
+    return rows.map((r) => ({
       _id: r.id,
       name: r.name,
       email: r.email,
       jobId: r.job_id,
+      jobTitle: jobs[String(r.job_id)]?.title || 'Unknown role',
       status: r.status,
       createdAt: r.created_at,
     }));
+  },
+
+  // --- Careers portal (applicant self-service) ---------------------------
+  // An applicant's own applications, matched by their verified email so résumés
+  // submitted BEFORE they made an account are included. Job populated with the
+  // fields the portal shows. Returns full candidate rows — the controller runs
+  // them through the applicant-safe serializer before sending.
+  async listForApplicant(email) {
+    const e = String(email || '').toLowerCase();
+    if (!e) return [];
+    const { data, error } = await getClient()
+      .from(TABLE)
+      .select('*')
+      .ilike('email', e)
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    const rows = (data || []).map(toApi);
+    const jobs = await jobLookup(rows.map((c) => c.jobId), ['title', 'department', 'location', 'employment_type']);
+    return rows.map((c) => ({ ...c, jobId: jobs[String(c.jobId)] || { _id: c.jobId, title: 'A role', department: '', location: '' } }));
+  },
+
+  // A single application, strictly scoped to the applicant's own email so one
+  // applicant can never read another's record by guessing an id.
+  async findForApplicant(id, email) {
+    const e = String(email || '').toLowerCase();
+    const { data, error } = await getClient().from(TABLE).select('*').eq('id', id).maybeSingle();
+    if (error) throw error;
+    if (!data || String(data.email || '').toLowerCase() !== e) return null;
+    const c = toApi(data);
+    const jobs = await jobLookup([c.jobId], ['title', 'department', 'location', 'employment_type', 'description']);
+    c.jobId = jobs[String(c.jobId)] || { _id: c.jobId, title: 'A role' };
+    return c;
   },
 
   // Delete and return the removed candidate's resumeUrl for storage cleanup.

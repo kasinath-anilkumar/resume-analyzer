@@ -7,6 +7,7 @@ const AIService = require('../services/aiService');
 const StorageService = require('../services/storageService');
 const EmailService = require('../services/emailService');
 const AuditRepo = require('../models/auditRepo');
+const CandidateMatcher = require('../services/candidateMatcher');
 
 // Resolve the AI provider/key configured through Settings so resume analysis
 // uses whatever key the admin pasted in the UI (auto-detected provider).
@@ -91,6 +92,61 @@ exports.getCandidates = async (req, res) => {
   }
 };
 
+// @desc    Cross-role recommendations: rank the WHOLE candidate pool by how well
+//          each fits the given job, regardless of the role they applied for.
+//          Fit is computed live (deterministic matcher) so it's always fresh —
+//          a new résumé or a new job shows up in recommendations immediately.
+// @route   GET /api/candidates/recommendations?jobId=<id>&min=<score>
+// @access  Private
+exports.getRecommendations = async (req, res) => {
+  try {
+    const { jobId, min } = req.query;
+    if (!jobId) {
+      return res.status(400).json({ success: false, message: 'A jobId is required.' });
+    }
+    const job = await JobRepo.findById(jobId);
+    if (!job) {
+      return res.status(404).json({ success: false, message: 'Job not found' });
+    }
+
+    // The full pool, each with its applied job populated ({_id,title,department}).
+    const pool = await CandidateRepo.listApi({});
+    const minScore = Number.isFinite(+min) ? +min : 40;
+    const ranked = CandidateMatcher.rankPool(pool, job, { min: minScore });
+
+    // Lean payload for the list view.
+    const data = ranked.map((c) => {
+      const a = c.aiAnalysis || {};
+      const applied = c.jobId && typeof c.jobId === 'object' ? { _id: c.jobId._id, title: c.jobId.title } : null;
+      return {
+        _id: c._id,
+        name: c.name,
+        email: c.email,
+        status: c.status,
+        analysisStatus: c.analysisStatus,
+        skills: c.skills || [],
+        appliedHere: c.appliedHere,
+        appliedJob: applied,
+        seniorityLevel: a.seniorityLevel || '',
+        redFlags: a.redFlags || [],
+        careerSummary: a.careerSummary || a.matchExplanation || '',
+        appliedScore: Number.isFinite(a.overallScore) ? a.overallScore : null,
+        match: c.match,
+      };
+    });
+
+    return res.json({
+      success: true,
+      count: data.length,
+      job: { _id: job._id, title: job.title },
+      data,
+    });
+  } catch (error) {
+    console.error('Recommendations error:', error);
+    return res.status(500).json({ success: false, message: 'Server error building recommendations' });
+  }
+};
+
 // @desc    Get single candidate profile
 // @route   GET /api/candidates/:id
 // @access  Private
@@ -100,10 +156,13 @@ exports.getCandidateById = async (req, res) => {
     if (!candidate) {
       return res.status(404).json({ success: false, message: 'Candidate not found' });
     }
-    // Surface other candidates sharing this email (possible duplicates).
+    // Surface other candidate records sharing this email. Distinguish a true
+    // duplicate (same email, SAME job) from the person also applying elsewhere.
     let duplicates = [];
     try {
-      duplicates = await CandidateRepo.findByEmail(candidate.email, candidate._id);
+      const myJobId = candidate.jobId?._id || candidate.jobId;
+      const others = await CandidateRepo.findByEmail(candidate.email, candidate._id);
+      duplicates = others.map((d) => ({ ...d, sameJob: String(d.jobId) === String(myJobId) }));
     } catch (dupErr) {
       console.error('Duplicate lookup failed:', dupErr.message);
     }

@@ -369,10 +369,21 @@ const Candidates = () => {
                             </Link>
                             {cand.isDuplicate && (
                               <span
-                                title={`This email appears on ${cand.duplicateCount} candidate records`}
+                                title={`Duplicate — this person has ${cand.duplicateCount} applications for this same job`}
                                 className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 border border-amber-500/20 text-[8.5px] font-bold uppercase"
                               >
                                 <Copy size={9} /> Dup
+                              </span>
+                            )}
+                            {cand.otherApplications?.length > 0 && (
+                              <span
+                                title={`Also applied for: ${cand.otherApplications.map((o) => o.title).join(', ')}`}
+                                className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-brand-500/10 text-brand-600 border border-brand-500/20 text-[8.5px] font-bold"
+                              >
+                                <ArrowRightLeft size={9} />
+                                {cand.otherApplications.length === 1
+                                  ? `Applied for: ${cand.otherApplications[0].title}`
+                                  : `+${cand.otherApplications.length} roles`}
                               </span>
                             )}
                             {cand.aiAnalysis?.redFlags?.length > 0 && (

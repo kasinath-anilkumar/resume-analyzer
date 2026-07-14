@@ -9,6 +9,7 @@ const {
   deleteNote,
   deleteCandidate,
   exportCandidate,
+  getRecommendations,
   getDashboardStats,
   scheduleInterview,
   deleteInterview,
@@ -20,6 +21,10 @@ const upload = require('../middleware/upload');
 
 // Dashboard statistics
 router.get('/dashboard/stats', protect, getDashboardStats);
+
+// Cross-role recommendations: rank the whole pool against a job (must be
+// declared before '/:id' so 'recommendations' isn't parsed as an id).
+router.get('/recommendations', protect, getRecommendations);
 
 // Upload resume & retrieve candidates
 router.route('/')
