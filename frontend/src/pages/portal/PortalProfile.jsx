@@ -28,6 +28,7 @@ const PortalProfile = () => {
   // { name, url } when a primary résumé is on file, else null.
   const [resumeFile, setResumeFile] = useState(null);
   const [uploadingResume, setUploadingResume] = useState(false);
+  const [originalProfile, setOriginalProfile] = useState(null);
 
   // Load the real profile once on mount.
   useEffect(() => {
@@ -43,6 +44,14 @@ const PortalProfile = () => {
           setPortfolio(p.portfolioUrl || '');
           setBio(p.bio || '');
           setResumeFile(p.resumeUrl ? { name: 'Your résumé on file', url: p.resumeUrl } : null);
+          setOriginalProfile({
+            name: p.name || '',
+            phone: p.phone || '',
+            location: p.location || '',
+            linkedinUrl: p.linkedinUrl || '',
+            portfolioUrl: p.portfolioUrl || '',
+            bio: p.bio || '',
+          });
         }
       })
       .catch(() => {});
@@ -78,6 +87,14 @@ const PortalProfile = () => {
       });
       if (res.data.success) {
         setProfileSuccess('Profile changes saved successfully.');
+        setOriginalProfile({
+          name: name.trim(),
+          phone: (phone || '').trim(),
+          location: location.trim(),
+          linkedinUrl: linkedin.trim(),
+          portfolioUrl: portfolio.trim(),
+          bio: bio.trim(),
+        });
         refreshProfile(); // keep the portal header name in sync
       } else {
         setProfileError(res.data.message || 'Could not save your profile.');
@@ -152,6 +169,24 @@ const PortalProfile = () => {
     } finally {
       setSaving(false);
     }
+  };
+
+  const isContactDirty = () => {
+    if (!originalProfile) return false;
+    return (
+      name.trim() !== originalProfile.name ||
+      (phone || '').trim() !== originalProfile.phone ||
+      location.trim() !== originalProfile.location
+    );
+  };
+
+  const isProfessionalDirty = () => {
+    if (!originalProfile) return false;
+    return (
+      linkedin.trim() !== originalProfile.linkedinUrl ||
+      portfolio.trim() !== originalProfile.portfolioUrl ||
+      bio.trim() !== originalProfile.bio
+    );
   };
 
   return (
@@ -360,9 +395,11 @@ const PortalProfile = () => {
                   </div>
                 </div>
 
-                <button type="submit" disabled={saving} className={`${luxuryBtn} w-full mt-2`}>
-                  {saving ? <Loader2 size={14} className="animate-spin" /> : 'Save Contact Details'}
-                </button>
+                {isContactDirty() && (
+                  <button type="submit" disabled={saving} className={`${luxuryBtn} w-full mt-2 animate-in fade-in zoom-in duration-200`}>
+                    {saving ? <Loader2 size={14} className="animate-spin" /> : 'Save Contact Details'}
+                  </button>
+                )}
               </form>
             </div>
           )}
@@ -472,9 +509,11 @@ const PortalProfile = () => {
                   />
                 </div>
 
-                <button type="submit" disabled={saving} className={`${luxuryBtn} w-full mt-1`}>
-                  {saving ? <Loader2 size={14} className="animate-spin" /> : 'Save Professional Details'}
-                </button>
+                {isProfessionalDirty() && (
+                  <button type="submit" disabled={saving} className={`${luxuryBtn} w-full mt-1 animate-in fade-in zoom-in duration-200`}>
+                    {saving ? <Loader2 size={14} className="animate-spin" /> : 'Save Professional Details'}
+                  </button>
+                )}
               </form>
             </div>
           )}
@@ -549,9 +588,11 @@ const PortalProfile = () => {
                   </div>
                 </div>
 
-                <button type="submit" disabled={saving} className={`${luxuryBtn} w-full mt-2`}>
-                  {saving ? <Loader2 size={14} className="animate-spin" /> : 'Change Password'}
-                </button>
+                {(currentPassword || newPassword || confirmPassword) && (
+                  <button type="submit" disabled={saving} className={`${luxuryBtn} w-full mt-2 animate-in fade-in zoom-in duration-200`}>
+                    {saving ? <Loader2 size={14} className="animate-spin" /> : 'Change Password'}
+                  </button>
+                )}
               </form>
             </div>
           )}

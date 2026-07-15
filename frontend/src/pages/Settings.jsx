@@ -51,6 +51,7 @@ const Settings = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState({ type: '', message: '' });
+  const [originalConfig, setOriginalConfig] = useState(null);
 
   // AI provider key management
   const [aiProvider, setAiProvider] = useState('mock');
@@ -179,6 +180,13 @@ const Settings = () => {
           setAiKeyMasked(aiKeyMasked || '');
           setSelectedModel(aiModel || '');
           if (retentionDays !== undefined) setRetentionDays(retentionDays || 0);
+          setOriginalConfig({
+            departments: departments || [],
+            locations: locations || [],
+            minAiScore: minAiScore || 60,
+            aiModel: aiModel || '',
+            retentionDays: retentionDays || 0
+          });
           if (aiKeyConfigured) fetchModels();
         }
 
@@ -261,6 +269,13 @@ const Settings = () => {
         if (d.aiKeyMasked !== undefined) setAiKeyMasked(d.aiKeyMasked || '');
         if (newApiKey) setNewApiKey('');
         if (res.data.availableModels?.length) setAvailableModels(res.data.availableModels);
+        setOriginalConfig({
+          departments: departments,
+          locations: locations,
+          minAiScore: minAiScore,
+          aiModel: selectedModel,
+          retentionDays: Number(retentionDays) || 0
+        });
         showStatus('success', 'All settings saved.');
       }
     } catch (err) {
@@ -327,6 +342,10 @@ const Settings = () => {
         // Keep the model list the key can use (from the save response, else the
         // preview we already fetched) so the picker stays populated.
         if (res.data.availableModels?.length) setAvailableModels(res.data.availableModels);
+        setOriginalConfig((prev) => ({
+          ...prev,
+          aiModel: selectedModel
+        }));
         showStatus('success', `API key saved. Detected provider: ${PROVIDER_LABELS[res.data.data.aiProvider] || res.data.data.aiProvider}.`);
       }
     } catch (err) {
@@ -380,6 +399,10 @@ const Settings = () => {
     try {
       const res = await api.put('/settings', { aiModel: selectedModel });
       if (res.data.success) {
+        setOriginalConfig((prev) => ({
+          ...prev,
+          aiModel: selectedModel
+        }));
         showStatus('success', selectedModel ? `Model set to ${selectedModel}.` : 'Using the provider default model.');
       }
     } catch (err) {
@@ -459,6 +482,17 @@ const Settings = () => {
     }
   };
 
+  const hasChanges = () => {
+    if (!originalConfig) return false;
+    const isDeptsChanged = JSON.stringify(departments) !== JSON.stringify(originalConfig.departments);
+    const isLocsChanged = JSON.stringify(locations) !== JSON.stringify(originalConfig.locations);
+    const isScoreChanged = minAiScore !== originalConfig.minAiScore;
+    const isRetentionChanged = Number(retentionDays) !== Number(originalConfig.retentionDays);
+    const isKeyChanged = newApiKey.trim() !== '';
+    const isModelChanged = selectedModel !== originalConfig.aiModel;
+    return isDeptsChanged || isLocsChanged || isScoreChanged || isRetentionChanged || isKeyChanged || isModelChanged;
+  };
+
   if (loading) {
     return (
       <div className="flex-1 flex items-center justify-center h-[calc(100vh-140px)]">
@@ -494,8 +528,8 @@ const Settings = () => {
           </p>
         </div>
 
-        {isHR && activeTab !== 'accounts' && (
-          <div className="flex items-center space-x-2 relative z-10">
+        {isHR && activeTab !== 'accounts' && hasChanges() && (
+          <div className="flex items-center space-x-2 relative z-10 animate-in fade-in zoom-in duration-200">
             {/* <button
               onClick={handleResetDefaults}
               className="flex items-center space-x-1 px-3 py-1.5 bg-white/10 hover:bg-white/15 text-white rounded-xl text-xs font-semibold border border-white/10 transition"
@@ -520,33 +554,36 @@ const Settings = () => {
 
         {/* Left Side Tab Navigation Column */}
         <div className="lg:col-span-1 space-y-2">
-          <div className="bg-white dark:bg-darkCard border border-slate-200/60 dark:border-darkBorder rounded-2xl p-2 shadow-premium dark:shadow-premium-dark space-y-1">
-            <p className="text-[9.5px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-widest px-2.5 py-1.5">Settings Panels</p>
-            {tabs.map((tab) => {
-              const Icon = tab.icon;
-              const isActive = activeTab === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl text-left transition duration-200 ${isActive
-                    ? 'bg-gradient-to-r from-brand-500/10 to-indigo-500/5 text-brand-600 dark:text-brand-400 border-l-3 border-brand-500 pl-2.5'
-                    : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-900/50'
+          <div className="bg-white dark:bg-darkCard border border-slate-200/60 dark:border-darkBorder rounded-2xl p-2 shadow-premium dark:shadow-premium-dark">
+            <p className="hidden lg:block text-[9.5px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-widest px-2.5 py-1.5 animate-in fade-in">Settings Panels</p>
+            <div className="flex lg:flex-col overflow-x-auto lg:overflow-x-visible gap-1.5 pb-2 lg:pb-0 scrollbar-none">
+              {tabs.map((tab) => {
+                const Icon = tab.icon;
+                const isActive = activeTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`flex-shrink-0 flex items-center space-x-2.5 lg:space-x-3 px-3 py-2 lg:py-2.5 rounded-xl text-left transition duration-200 ${
+                      isActive
+                        ? 'bg-gradient-to-r from-brand-500/10 to-indigo-500/5 text-brand-600 dark:text-brand-400 border-b-2 lg:border-b-0 lg:border-l-3 border-brand-500 font-bold'
+                        : 'text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-900/50'
                     }`}
-                >
-                  <Icon size={16} className={isActive ? 'text-brand-500' : 'text-slate-400'} />
-                  <div>
-                    <span className="text-xs font-bold block">{tab.label}</span>
-                    <span className="text-[9px] text-slate-400 block -mt-0.5">{tab.desc}</span>
-                  </div>
-                  {isActive && <ChevronRight size={12} className="ml-auto text-brand-500" />}
-                </button>
-              );
-            })}
+                  >
+                    <Icon size={15} className={isActive ? 'text-brand-500' : 'text-slate-400'} />
+                    <div>
+                      <span className="text-xs font-bold block whitespace-nowrap">{tab.label}</span>
+                      <span className="hidden lg:block text-[9px] text-slate-400 block -mt-0.5">{tab.desc}</span>
+                    </div>
+                    {isActive && <ChevronRight size={12} className="hidden lg:block ml-auto text-brand-500" />}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
-          {/* Connected User Profile Card */}
-          <div className="bg-white dark:bg-darkCard border border-slate-200/60 dark:border-darkBorder rounded-2xl p-3 shadow-premium dark:shadow-premium-dark space-y-2.5">
+          {/* Connected User Profile Card (Hidden on Mobile) */}
+          <div className="hidden lg:block bg-white dark:bg-darkCard border border-slate-200/60 dark:border-darkBorder rounded-2xl p-3 shadow-premium dark:shadow-premium-dark space-y-2.5">
             <div className="flex items-center space-x-2.5">
               <div className="w-8 h-8 rounded-full bg-brand-500/10 text-brand-600 dark:text-brand-400 flex items-center justify-center font-bold text-xs uppercase shadow-inner">
                 {user?.name?.slice(0, 2) || 'UR'}
@@ -688,7 +725,7 @@ const Settings = () => {
                 {/* Add / replace key */}
                 {isHR && (
                   <div className="space-y-2">
-                    <div className="flex items-center space-x-2">
+                    <div className="flex flex-col sm:flex-row gap-2">
                       <input
                         type="password"
                         autoComplete="off"
@@ -698,14 +735,16 @@ const Settings = () => {
                         placeholder={aiKeyConfigured ? 'Paste a new key to replace…' : 'sk-... / sk-ant-... / nvapi-... / AIza... / AQ...'}
                         className="flex-grow h-9 px-3 border border-slate-200 dark:border-darkBorder rounded-lg bg-white dark:bg-slate-900 text-xs font-mono text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
                       />
-                      <button
-                        onClick={handleSaveApiKey}
-                        disabled={savingKey || !newApiKey.trim() || detectedProvider === 'unknown'}
-                        className="flex items-center space-x-1.5 px-3.5 h-9 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold rounded-lg transition"
-                      >
-                        {savingKey ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
-                        <span>Save Key</span>
-                      </button>
+                      {newApiKey.trim() && detectedProvider !== 'unknown' && (
+                        <button
+                          onClick={handleSaveApiKey}
+                          disabled={savingKey}
+                          className="flex items-center justify-center space-x-1.5 px-3.5 h-9 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold rounded-lg transition w-full sm:w-auto animate-in fade-in duration-200"
+                        >
+                          {savingKey ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
+                          <span>Save Key</span>
+                        </button>
+                      )}
                     </div>
                     {newApiKey.trim() && (
                       <p className={`text-[10px] font-medium ${detectedProvider === 'unknown' ? 'text-rose-500' : 'text-emerald-600 dark:text-emerald-400'}`}>
@@ -749,7 +788,7 @@ const Settings = () => {
                         <Loader2 size={13} className="animate-spin" /> Loading available models…
                       </div>
                     ) : availableModels.length > 0 ? (
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-col sm:flex-row gap-2">
                         <select
                           value={selectedModel}
                           onChange={(e) => setSelectedModel(e.target.value)}
@@ -762,11 +801,11 @@ const Settings = () => {
                         </select>
                         {/* Persisting alone only makes sense once the key is saved;
                             for a newly-entered key, "Save Key" stores key + model. */}
-                        {aiKeyConfigured && (
+                        {aiKeyConfigured && originalConfig && selectedModel !== originalConfig.aiModel && (
                           <button
                             onClick={handleSaveModel}
                             disabled={savingModel}
-                            className="flex items-center space-x-1.5 px-3.5 h-9 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-xs font-semibold rounded-lg transition"
+                            className="flex items-center justify-center space-x-1.5 px-3.5 h-9 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-xs font-semibold rounded-lg transition w-full sm:w-auto animate-in fade-in duration-200"
                           >
                             {savingModel ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
                             <span>Set Model</span>
@@ -903,13 +942,15 @@ const Settings = () => {
                     value={pwForm.confirm} onChange={(e) => setPwForm((f) => ({ ...f, confirm: e.target.value }))}
                     className="h-9 px-3 border border-slate-200 dark:border-darkBorder rounded-lg bg-white dark:bg-slate-900 text-xs text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
                   />
-                  <button
-                    type="submit" disabled={changingPw}
-                    className="sm:col-span-3 flex items-center justify-center gap-1.5 h-9 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-xs font-semibold rounded-lg transition"
-                  >
-                    {changingPw ? <Loader2 size={13} className="animate-spin" /> : <ShieldCheck size={13} />}
-                    <span>Update Password</span>
-                  </button>
+                  {(pwForm.current || pwForm.next || pwForm.confirm) && (
+                    <button
+                      type="submit" disabled={changingPw}
+                      className="sm:col-span-3 flex items-center justify-center gap-1.5 h-9 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white text-xs font-semibold rounded-lg transition animate-in fade-in duration-200"
+                    >
+                      {changingPw ? <Loader2 size={13} className="animate-spin" /> : <ShieldCheck size={13} />}
+                      <span>Update Password</span>
+                    </button>
+                  )}
                 </form>
               </div>
 
@@ -1044,67 +1085,119 @@ const Settings = () => {
                     No users found.
                   </div>
                 ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-xs">
-                      <thead>
-                        <tr className="border-b border-slate-100 dark:border-darkBorder/60 bg-slate-50/50 dark:bg-slate-900/30 text-[10.5px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">
-                          <th className="py-2.5 px-4">User</th>
-                          <th className="py-2.5 px-4">Role</th>
-                          <th className="py-2.5 px-4 w-10"></th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100 dark:divide-darkBorder/60">
-                        {users.map((u) => {
-                          const isSelf = u._id === user?._id;
-                          return (
-                            <tr key={u._id} className="hover:bg-slate-50/40 dark:hover:bg-slate-800/20 transition">
-                              <td className="py-2.5 px-4">
-                                <div className="flex items-center space-x-3">
-                                  <div className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center font-bold text-slate-600 dark:text-slate-400 uppercase">
-                                    {u.name?.slice(0, 2) || 'U'}
+                  <>
+                    {/* Desktop View (Hidden on Mobile) */}
+                    <div className="hidden md:block overflow-x-auto">
+                      <table className="w-full text-left text-xs">
+                        <thead>
+                          <tr className="border-b border-slate-100 dark:border-darkBorder/60 bg-slate-50/50 dark:bg-slate-900/30 text-[10.5px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">
+                            <th className="py-2.5 px-4">User</th>
+                            <th className="py-2.5 px-4">Role</th>
+                            <th className="py-2.5 px-4 w-10"></th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 dark:divide-darkBorder/60">
+                          {users.map((u) => {
+                            const isSelf = u._id === user?._id;
+                            return (
+                              <tr key={u._id} className="hover:bg-slate-50/40 dark:hover:bg-slate-800/20 transition">
+                                <td className="py-2.5 px-4">
+                                  <div className="flex items-center space-x-3">
+                                    <div className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center font-bold text-slate-600 dark:text-slate-400 uppercase">
+                                      {u.name?.slice(0, 2) || 'U'}
+                                    </div>
+                                    <div className="min-w-0">
+                                      <span className="font-bold text-slate-800 dark:text-slate-200 block truncate">
+                                        {u.name}{isSelf && <span className="text-[9px] font-semibold text-brand-500 ml-1.5">(you)</span>}
+                                      </span>
+                                      <span className="text-[10px] text-slate-400 truncate block">{u.email}</span>
+                                    </div>
                                   </div>
-                                  <div className="min-w-0">
-                                    <span className="font-bold text-slate-800 dark:text-slate-200 block truncate">
-                                      {u.name}{isSelf && <span className="text-[9px] font-semibold text-brand-500 ml-1.5">(you)</span>}
-                                    </span>
-                                    <span className="text-[10px] text-slate-400 truncate block">{u.email}</span>
-                                  </div>
-                                </div>
-                              </td>
-                              <td className="py-2.5 px-4">
-                                {isSelf ? (
-                                  <span className={`inline-block px-2 py-0.5 rounded-full font-semibold text-[9.5px] uppercase ${roleBadgeClass(u.role)}`}>{u.role}</span>
-                                ) : (
-                                  <select
-                                    value={u.role}
-                                    disabled={busyId === u._id}
-                                    onChange={(e) => handleRoleChange(u._id, e.target.value)}
-                                    className="h-8 px-2 border border-slate-200 dark:border-darkBorder rounded-lg bg-white dark:bg-slate-900 text-[11px] text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
-                                  >
-                                    {ROLES.map((r) => (
-                                      <option key={r} value={r}>{r}</option>
-                                    ))}
-                                  </select>
-                                )}
-                              </td>
-                              <td className="py-2.5 px-4 text-right">
-                                {!isSelf && (
-                                  <button
-                                    onClick={() => handleDeleteUser(u)}
-                                    disabled={busyId === u._id}
-                                    className="p-1 text-slate-400 hover:text-rose-500 rounded transition disabled:opacity-40"
-                                    title="Delete staff account"
-                                  >
-                                    <Trash2 size={14} />
-                                  </button>
-                                )}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
+                                </td>
+                                <td className="py-2.5 px-4">
+                                  {isSelf ? (
+                                    <span className={`inline-block px-2 py-0.5 rounded-full font-semibold text-[9.5px] uppercase ${roleBadgeClass(u.role)}`}>{u.role}</span>
+                                  ) : (
+                                    <select
+                                      value={u.role}
+                                      disabled={busyId === u._id}
+                                      onChange={(e) => handleRoleChange(u._id, e.target.value)}
+                                      className="h-8 px-2 border border-slate-200 dark:border-darkBorder rounded-lg bg-white dark:bg-slate-900 text-[11px] text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
+                                    >
+                                      {ROLES.map((r) => (
+                                        <option key={r} value={r}>{r}</option>
+                                      ))}
+                                    </select>
+                                  )}
+                                </td>
+                                <td className="py-2.5 px-4 text-right">
+                                  {!isSelf && (
+                                    <button
+                                      onClick={() => handleDeleteUser(u)}
+                                      disabled={busyId === u._id}
+                                      className="p-1 text-slate-400 hover:text-rose-500 rounded transition disabled:opacity-40"
+                                      title="Delete staff account"
+                                    >
+                                      <Trash2 size={14} />
+                                    </button>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Mobile Card List View (Hidden on Desktop) */}
+                    <div className="block md:hidden divide-y divide-slate-100 dark:divide-darkBorder/60">
+                      {users.map((u) => {
+                        const isSelf = u._id === user?._id;
+                        return (
+                          <div key={u._id} className="p-4 space-y-3 hover:bg-slate-50/40 dark:hover:bg-slate-800/10 transition">
+                            <div className="flex items-center space-x-3">
+                              <div className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center font-bold text-slate-600 dark:text-slate-400 uppercase flex-shrink-0">
+                                {u.name?.slice(0, 2) || 'U'}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <span className="font-bold text-slate-800 dark:text-slate-200 block truncate text-xs">
+                                  {u.name}{isSelf && <span className="text-[9px] font-semibold text-brand-500 ml-1.5">(you)</span>}
+                                </span>
+                                <span className="text-[10px] text-slate-400 truncate block text-[10.5px]">{u.email}</span>
+                              </div>
+                              {!isSelf && (
+                                <button
+                                  onClick={() => handleDeleteUser(u)}
+                                  disabled={busyId === u._id}
+                                  className="p-1 text-slate-400 hover:text-rose-500 rounded transition disabled:opacity-40 flex-shrink-0"
+                                  title="Delete staff account"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              )}
+                            </div>
+                            <div className="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-darkBorder/20 text-xs">
+                              <span className="text-slate-400 text-[10px] font-medium">Access Role:</span>
+                              {isSelf ? (
+                                <span className={`inline-block px-2 py-0.5 rounded-full font-semibold text-[9.5px] uppercase ${roleBadgeClass(u.role)}`}>{u.role}</span>
+                              ) : (
+                                <select
+                                  value={u.role}
+                                  disabled={busyId === u._id}
+                                  onChange={(e) => handleRoleChange(u._id, e.target.value)}
+                                  className="h-8 px-2 border border-slate-200 dark:border-darkBorder rounded-lg bg-white dark:bg-slate-900 text-[11px] text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
+                                >
+                                  {ROLES.map((r) => (
+                                    <option key={r} value={r}>{r}</option>
+                                  ))}
+                                </select>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
                 )}
               </div>
             </div>

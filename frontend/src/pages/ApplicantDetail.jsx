@@ -204,6 +204,18 @@ const ApplicantDetail = () => {
     }
   };
 
+  const isFormDirty = () => {
+    if (!applicant) return false;
+    return (
+      (form.name || '').trim() !== (applicant.name || '') ||
+      (form.phone || '').trim() !== (applicant.phone || '') ||
+      (form.location || '').trim() !== (applicant.location || '') ||
+      (form.linkedinUrl || '').trim() !== (applicant.linkedinUrl || '') ||
+      (form.portfolioUrl || '').trim() !== (applicant.portfolioUrl || '') ||
+      (form.bio || '').trim() !== (applicant.bio || '')
+    );
+  };
+
   const sendReset = async () => {
     if (!window.confirm(`Email a password-reset link to ${applicant.email}?`)) return;
     setBusy(true);
@@ -476,14 +488,16 @@ const ApplicantDetail = () => {
                     <X size={13} />
                     <span>Cancel</span>
                   </button>
-                  <button
-                    type="submit"
-                    disabled={busy}
-                    className="flex items-center gap-1 px-3.5 py-1.5 text-xs font-bold text-white bg-brand-600 hover:bg-brand-700 rounded-xl disabled:opacity-55 transition shadow-sm cursor-pointer"
-                  >
-                    {busy ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
-                    <span>Save Changes</span>
-                  </button>
+                  {isFormDirty() && (
+                    <button
+                      type="submit"
+                      disabled={busy}
+                      className="flex items-center gap-1 px-3.5 py-1.5 text-xs font-bold text-white bg-brand-600 hover:bg-brand-700 rounded-xl disabled:opacity-55 transition shadow-sm cursor-pointer animate-in fade-in zoom-in duration-200"
+                    >
+                      {busy ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
+                      <span>Save Changes</span>
+                    </button>
+                  )}
                 </div>
               </form>
             ) : (
