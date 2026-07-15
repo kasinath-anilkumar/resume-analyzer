@@ -172,7 +172,18 @@ exports.apply = async (req, res) => {
       }
     } catch (_) { /* ignore malformed answers */ }
 
-    // 2b) Score the quiz (if the job has one) — MCQ is auto-graded server-side.
+    // 2b) Require every screening question to be answered (server-side — the
+    //     form can be bypassed). Match by the question text the form submitted.
+    if (Array.isArray(job.screeningQuestions) && job.screeningQuestions.length) {
+      const answered = new Set(
+        screeningAnswers.filter((a) => a.answer && String(a.answer).trim()).map((a) => a.question)
+      );
+      if (!job.screeningQuestions.every((q) => answered.has(q))) {
+        return res.status(400).json({ success: false, message: 'Please answer all the screening questions before submitting.' });
+      }
+    }
+
+    // 2c) Parse + validate the quiz, then score it (MCQ auto-graded server-side).
     let quizResult = {};
     if (job.quiz && Array.isArray(job.quiz.questions) && job.quiz.questions.length) {
       let quizAnswers = [];
@@ -180,6 +191,24 @@ exports.apply = async (req, res) => {
         const parsed = typeof req.body.quizAnswers === 'string' ? JSON.parse(req.body.quizAnswers) : req.body.quizAnswers;
         if (Array.isArray(parsed)) quizAnswers = parsed;
       } catch (_) { /* ignore */ }
+
+      // Every quiz question must be answered — UNLESS the time limit elapsed, in
+      // which case the applicant submits with whatever they managed (a genuine
+      // timeout). An answer of index 0 counts as answered.
+      const timeLimitSec = (parseInt(job.quiz.timeLimitMinutes, 10) || 0) * 60;
+      const spent = parseInt(req.body.quizTimeSpent, 10);
+      const timedOut = timeLimitSec > 0 && Number.isFinite(spent) && spent >= timeLimitSec - 2;
+      if (!timedOut) {
+        const answered = new Set(
+          quizAnswers
+            .filter((a) => a && a.answer !== undefined && a.answer !== null && String(a.answer).trim() !== '')
+            .map((a) => String(a.questionId))
+        );
+        if (!job.quiz.questions.every((q) => answered.has(String(q.id)))) {
+          return res.status(400).json({ success: false, message: 'Please answer all the quiz questions before submitting.' });
+        }
+      }
+
       quizResult = scoreQuiz(job.quiz, quizAnswers, {
         timeSpentSeconds: req.body.quizTimeSpent,
         tabSwitches: req.body.quizTabSwitches,

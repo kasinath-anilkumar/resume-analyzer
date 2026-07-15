@@ -4,7 +4,7 @@ import api from '../services/api';
 import portalApi from '../services/portalApi';
 import { useApplicantAuth } from '../context/ApplicantAuthContext';
 import PhoneInput, { isValidPhoneNumber } from 'react-phone-number-input';
-import { CITY_SUGGESTIONS } from '../data/cities';
+import LocationSearchInput from '../components/LocationSearchInput';
 import RichText from '../utils/richText';
 import {
   Briefcase, MapPin, Clock, ChevronLeft, Loader2, UploadCloud,
@@ -273,6 +273,19 @@ const CareerApply = () => {
     if (form.phone && !isValidPhoneNumber(form.phone)) { setError('Please enter a valid phone number.'); return; }
     const reuseSaved = usePrimaryResume && hasPrimaryResume && !file;
     if (!enterDetailsManually && !file && !reuseSaved) { setError('Please attach your résumé.'); return; }
+
+    // Every screening question must be answered before submitting.
+    if (answers.length && answers.some((a) => !a.answer.trim())) {
+      setError('Please answer all the screening questions before submitting.'); return;
+    }
+    // Every quiz question must be answered — unless the timer already ran out.
+    if (hasQuiz && !quizLocked) {
+      const unanswered = job.quiz.questions.some((q) => {
+        const v = quizAnswers[q.id];
+        return v === undefined || v === null || (typeof v === 'string' && !v.trim());
+      });
+      if (unanswered) { setError('Please answer all the quiz questions before submitting.'); return; }
+    }
 
     const fd = new FormData();
     if (enterDetailsManually) {
@@ -575,10 +588,12 @@ const CareerApply = () => {
                           </div>
                           <div className="space-y-2">
                             <label className="text-[9px] font-semibold tracking-widest text-slate-400 uppercase">Current Location</label>
-                            <input list="apply-city-suggestions" value={form.currentLocation} onChange={(e) => setForm((f) => ({ ...f, currentLocation: e.target.value }))} placeholder="KOCHI, KERALA" className={input} />
-                            <datalist id="apply-city-suggestions">
-                              {CITY_SUGGESTIONS.map((c) => <option key={c} value={c} />)}
-                            </datalist>
+                            <LocationSearchInput
+                              value={form.currentLocation}
+                              onChange={(val) => setForm((f) => ({ ...f, currentLocation: val }))}
+                              placeholder="KOCHI, KERALA"
+                              className={input}
+                            />
                           </div>
                           <div className="space-y-2 sm:col-span-2">
                             <label className="text-[9px] font-semibold tracking-widest text-slate-400 uppercase">Salary Expectation</label>
