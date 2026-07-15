@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import api from '../services/api';
+import safeUrl from '../utils/safeUrl';
 import { useAuth } from '../context/AuthContext';
 import {
   ChevronLeft,
@@ -62,15 +63,16 @@ const statusNodeColor = (status) => {
 };
 
 const getStatusStepIndex = (status) => {
-  if (status === 'Hired') return 4;
-  if (status === 'Offer') return 3;
-  if (['Interview', 'Technical Round', 'HR Round'].includes(status)) return 2;
-  if (status === 'Shortlisted') return 1;
-  return 0; // 'Applied' or 'Screening'
+  const s = (status || '').toLowerCase();
+  if (s === 'hired') return 4;
+  if (s === 'offer') return 3;
+  if (['interview', 'technical round', 'hr round'].includes(s)) return 2;
+  if (s === 'shortlisted') return 1;
+  return 0; // 'applied' or 'screening'
 };
 
 const renderApplicationRoadmap = (status) => {
-  const isRejected = status === 'Rejected';
+  const isRejected = (status || '').toLowerCase() === 'rejected';
   const steps = ['Applied', 'Shortlisted', 'Interview', 'Offer', isRejected ? 'Rejected' : 'Hired'];
   const currentStep = isRejected ? 4 : getStatusStepIndex(status);
 
@@ -78,11 +80,11 @@ const renderApplicationRoadmap = (status) => {
     <div className="w-full py-2">
       <div className="relative flex items-center justify-between w-full">
         {/* Track Lines */}
-        <div className="absolute left-0 right-0 top-1.5 h-0.5 bg-slate-200 dark:bg-darkBorder/60 z-0" />
+        <div className="absolute left-[10%] right-[10%] top-1.5 h-0.5 bg-slate-200 dark:bg-darkBorder/60 z-0" />
         <div
-          className={`absolute left-0 top-1.5 h-0.5 transition-all duration-500 z-0 ${isRejected ? 'bg-rose-500' : 'bg-brand-500'
+          className={`absolute left-[10%] top-1.5 h-0.5 transition-all duration-500 z-0 ${isRejected ? 'bg-rose-500' : 'bg-brand-500'
             }`}
-          style={{ width: `${(currentStep / 4) * 100}%` }}
+          style={{ width: `${(currentStep / 4) * 80}%` }}
         />
 
         {/* Nodes */}
@@ -91,7 +93,7 @@ const renderApplicationRoadmap = (status) => {
           const isActive = idx === currentStep;
 
           let nodeBg = 'bg-slate-200 dark:bg-slate-800';
-          let borderCol = 'border-slate-350 dark:border-darkBorder';
+          let borderCol = 'border-slate-300 dark:border-darkBorder';
           let textCol = 'text-slate-400 dark:text-slate-500';
 
           if (isCompleted) {
@@ -116,7 +118,10 @@ const renderApplicationRoadmap = (status) => {
                     <div className="w-1.5 h-1.5 bg-white rounded-full" />
                   )}
                   {isActive && (
-                    <div className={`w-1.5 h-1.5 rounded-full ${isRejected ? 'bg-rose-500' : 'bg-brand-500'} animate-ping`} />
+                    <div className="relative flex items-center justify-center">
+                      <div className={`w-1.5 h-1.5 rounded-full ${isRejected ? 'bg-rose-500' : 'bg-brand-500'}`} />
+                      <div className={`absolute w-3.5 h-3.5 rounded-full ${isRejected ? 'bg-rose-500' : 'bg-brand-500'} animate-ping opacity-75`} />
+                    </div>
                   )}
                 </div>
               </div>
@@ -155,6 +160,14 @@ const ApplicantDetail = () => {
   const flash = (type, text) => {
     setMsg({ type, text });
     setTimeout(() => setMsg({ type: '', text: '' }), 5000);
+  };
+
+  // Résumés live in a private bucket — fetch a short-lived signed URL on demand.
+  const openResume = async () => {
+    try {
+      const res = await api.get(`/applicants/${id}/resume-url`);
+      if (res.data?.url) window.open(res.data.url, '_blank', 'noopener,noreferrer');
+    } catch { flash('error', 'Could not open résumé'); }
   };
 
   const load = () => {
@@ -541,27 +554,26 @@ const ApplicantDetail = () => {
                 {applicant.resumeUrl && (
                   <div className="space-y-2.5 pt-2">
                     <span className="text-[9.5px] font-extrabold text-slate-400 dark:text-slate-505 uppercase tracking-widest block">Attached Resume</span>
-                    <a
-                      href={applicant.resumeUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="flex items-center space-x-3 p-3 bg-slate-50/50 hover:bg-slate-100/50 dark:bg-slate-900/40 dark:hover:bg-slate-800/40 border border-slate-200/60 dark:border-darkBorder rounded-2xl text-xs font-bold text-slate-750 dark:text-slate-300 transition duration-200"
+                    <button
+                      type="button"
+                      onClick={openResume}
+                      className="w-full flex items-center space-x-3 p-3 bg-slate-50/50 hover:bg-slate-100/50 dark:bg-slate-900/40 dark:hover:bg-slate-800/40 border border-slate-200/60 dark:border-darkBorder rounded-2xl text-xs font-bold text-slate-750 dark:text-slate-300 transition duration-200"
                     >
                       <div className="w-8 h-8 rounded-xl bg-brand-500/10 text-brand-600 dark:text-brand-400 flex items-center justify-center flex-shrink-0">
                         <FileText size={16} />
                       </div>
-                      <span className="truncate flex-1">Download Candidate CV</span>
+                      <span className="truncate flex-1 text-left">Download Candidate CV</span>
                       <ExternalLink size={12} className="text-slate-400 flex-shrink-0" />
-                    </a>
+                    </button>
                   </div>
                 )}
 
                 {/* Social Handles panel */}
-                {(applicant.linkedinUrl || applicant.portfolioUrl) && (
+                {(safeUrl(applicant.linkedinUrl) || safeUrl(applicant.portfolioUrl)) && (
                   <div className="flex items-center justify-center space-x-3 pt-4 border-t border-slate-100 dark:border-darkBorder/40">
-                    {applicant.linkedinUrl && (
+                    {safeUrl(applicant.linkedinUrl) && (
                       <a
-                        href={applicant.linkedinUrl}
+                        href={safeUrl(applicant.linkedinUrl)}
                         target="_blank"
                         rel="noreferrer"
                         className="flex-1 flex items-center justify-center space-x-1.5 py-2 px-3 border border-slate-200 dark:border-darkBorder rounded-xl hover:bg-indigo-50 dark:hover:bg-indigo-950/20 text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 text-xs font-semibold transition"
@@ -570,9 +582,9 @@ const ApplicantDetail = () => {
                         <span>LinkedIn</span>
                       </a>
                     )}
-                    {applicant.portfolioUrl && (
+                    {safeUrl(applicant.portfolioUrl) && (
                       <a
-                        href={applicant.portfolioUrl}
+                        href={safeUrl(applicant.portfolioUrl)}
                         target="_blank"
                         rel="noreferrer"
                         className="flex-1 flex items-center justify-center space-x-1.5 py-2 px-3 border border-slate-200 dark:border-darkBorder rounded-xl hover:bg-emerald-50 dark:hover:bg-emerald-950/20 text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400 text-xs font-semibold transition"
@@ -635,7 +647,7 @@ const ApplicantDetail = () => {
                   <div key={app._id} className="relative group">
 
                     {/* Timeline Node shape */}
-                    <div className="absolute -left-[32px] top-4.5 flex items-center justify-center z-10">
+                    <div className="absolute w-8 h-8 -left-4 top-[8px] flex items-center justify-center z-10">
                       <div className={`w-3.5 h-3.5 rotate-45 border-2 border-white dark:border-darkCard shadow-sm rounded-sm ${statusNodeColor(app.status)} transition-transform duration-300 group-hover:scale-110`} />
                     </div>
 

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import portalApi from '../../services/portalApi';
+import safeUrl from '../../utils/safeUrl';
 import { useLiveRefresh } from '../../hooks/useLiveRefresh';
 import PortalShell, { statusPill } from './PortalShell';
 import {
@@ -113,8 +114,9 @@ const PortalApplicationDetail = () => {
                         {step.done ? (
                           <div className={`w-2.5 h-2.5 rounded-none rotate-45 ${negativeFinal ? 'bg-rose-500' : 'bg-[#c5a880]'}`} />
                         ) : step.current ? (
-                          <div className={`w-3.5 h-3.5 border-2 ${negativeFinal ? 'border-rose-500' : 'border-[#c5a880]'} bg-white dark:bg-[#151210] flex items-center justify-center`}>
-                            <div className={`w-1.5 h-1.5 ${negativeFinal ? 'bg-rose-500' : 'bg-[#c5a880]'} animate-pulse`} />
+                          <div className={`w-3.5 h-3.5 border-2 ${negativeFinal ? 'border-rose-500' : 'border-[#c5a880]'} bg-white dark:bg-[#151210] flex items-center justify-center relative`}>
+                            <div className={`w-1.5 h-1.5 ${negativeFinal ? 'bg-rose-500' : 'bg-[#c5a880]'} rounded-full`} />
+                            <div className={`absolute w-3 h-3 ${negativeFinal ? 'bg-rose-500' : 'bg-[#c5a880]'} rounded-full animate-ping opacity-75`} />
                           </div>
                         ) : (
                           <div className="w-2.5 h-2.5 rounded-none border border-slate-300 dark:border-slate-800 bg-white dark:bg-[#151210]" />
@@ -154,9 +156,9 @@ const PortalApplicationDetail = () => {
                       </div>
                       <div className="text-[10px] tracking-wide text-slate-500 mt-1 space-y-0.5">
                         {iv.mode && <div className="uppercase">{iv.mode}</div>}
-                        {iv.locationOrLink && (iv.mode === 'Online'
-                          ? <a href={iv.locationOrLink} target="_blank" rel="noreferrer" className="text-[#c5a880] hover:underline break-all">{iv.locationOrLink}</a>
-                          : <div>{iv.locationOrLink}</div>)}
+                        {iv.locationOrLink && (iv.mode === 'Online' && safeUrl(iv.locationOrLink)
+                          ? <a href={safeUrl(iv.locationOrLink)} target="_blank" rel="noreferrer" className="text-[#c5a880] hover:underline break-all">{iv.locationOrLink}</a>
+                          : <div className="break-all">{iv.locationOrLink}</div>)}
                         {iv.interviewer && <div>With {iv.interviewer}</div>}
                       </div>
                     </div>

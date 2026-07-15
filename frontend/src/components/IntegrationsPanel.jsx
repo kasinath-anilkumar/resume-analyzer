@@ -162,7 +162,7 @@ const IntegrationsPanel = () => {
       {/* WhatsApp */}
       <div className="p-4 bg-white dark:bg-darkCard border border-slate-200/60 dark:border-darkBorder rounded-2xl shadow-premium dark:shadow-premium-dark">
         <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2"><MessageCircle size={14} className="text-emerald-500" /> WhatsApp résumé request</h3>
+          <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2"><MessageCircle size={14} className="text-emerald-500" /> WhatsApp resume request</h3>
           <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wide ${cfg?.whatsappConfigured ? 'bg-emerald-500/10 text-emerald-600 border border-emerald-500/20' : 'bg-slate-500/10 text-slate-500'}`}>
             {cfg?.whatsappConfigured ? 'Ready' : 'Not configured'}
           </span>
