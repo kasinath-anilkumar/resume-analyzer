@@ -32,33 +32,66 @@ async function processOne(row) {
     const job = await JobRepo.findById(row.job_id);
     if (!job) return CandidateRepo.failAnalysis(id, 'Job not found for analysis.');
 
-    const file = await StorageService.downloadResume(row.resume_url);
-    const text = await ParserService.extractText(file.buffer, file.mimeType, file.originalName);
-    if (!text || !text.replace(/\s/g, '').length) {
-      return CandidateRepo.failAnalysis(id, 'Could not read any text from the résumé.');
-    }
+    // MANUAL ENTRY (no résumé file): build a profile from the applicant's own
+    // structured details and AI-screen THAT — keeping their entered fields
+    // intact and tagging the report as coming from the form. If AI is
+    // unavailable, finalize with the instant deterministic baseline it already
+    // has (never leave it 'failed').
+    if (!row.resume_url) {
+      const cfg = await resolveAiConfig();
+      const aiUsable = Boolean(cfg.apiKey && cfg.provider && cfg.provider !== 'mock');
+      const profile = buildManualProfileText(row);
+      if (!aiUsable || !profile.trim()) {
+        await CandidateRepo.markCompleted(id);
+        console.log('[worker] manual entry finalized without AI', id);
+      } else if (await CandidateRepo.isDeleted(id)) {
+        await CandidateRepo.revertToPending(id).catch(() => {});
+        return;
+      } else {
+        try {
+          const parsed = await AIService.analyzeResume(profile, job, cfg);
+          await CandidateRepo.completeAnalysis(id, parsed, {
+            preserveName: true, preserveEmail: true, preservePhone: Boolean(row.phone),
+            preserveProfile: true, // keep the applicant's entered skills/edu/exp/projects
+            analyzedFrom: 'form',  // report is from the entered details, not a résumé
+          });
+          console.log('[worker] AI-analyzed manual entry', id);
+        } catch (aiErr) {
+          // AI failed — keep the deterministic baseline rather than failing the row.
+          console.error('[worker] manual AI failed, keeping baseline for', id, '-', aiErr.message);
+          await CandidateRepo.markCompleted(id).catch(() => {});
+        }
+      }
+    } else {
+      const file = await StorageService.downloadResume(row.resume_url);
+      const text = await ParserService.extractText(file.buffer, file.mimeType, file.originalName);
+      if (!text || !text.replace(/\s/g, '').length) {
+        return CandidateRepo.failAnalysis(id, 'Could not read any text from the résumé.');
+      }
 
-    // A recruiter may have trashed this candidate during the (slow) download/OCR
-    // above. Bail BEFORE the paid AI call so no credit/DB write is spent on a
-    // deleted candidate. Release the claim so a later restore re-queues it.
-    if (await CandidateRepo.isDeleted(id)) {
-      console.log('[worker] candidate deleted mid-analysis — skipping AI for', id);
-      await CandidateRepo.revertToPending(id).catch(() => {});
-      return;
-    }
+      // A recruiter may have trashed this candidate during the (slow) download/OCR
+      // above. Bail BEFORE the paid AI call so no credit/DB write is spent on a
+      // deleted candidate. Release the claim so a later restore re-queues it.
+      if (await CandidateRepo.isDeleted(id)) {
+        console.log('[worker] candidate deleted mid-analysis — skipping AI for', id);
+        await CandidateRepo.revertToPending(id).catch(() => {});
+        return;
+      }
 
-    const parsed = await AIService.analyzeResume(text, job, await resolveAiConfig());
-    // Applicants entered their own name/email/phone on the apply form — those are
-    // authoritative and must NOT be overwritten by whatever the résumé parser
-    // reads (a résumé can carry a different name). Manual recruiter uploads keep
-    // the AI-filled identity (they start from placeholders).
-    const isApplication = row.source === 'Application';
-    await CandidateRepo.completeAnalysis(id, parsed, {
-      preserveName: isApplication,
-      preserveEmail: isApplication,
-      preservePhone: isApplication && Boolean(row.phone),
-    });
-    console.log('[worker] analyzed candidate', id);
+      const parsed = await AIService.analyzeResume(text, job, await resolveAiConfig());
+      // Applicants entered their own name/email/phone on the apply form — those are
+      // authoritative and must NOT be overwritten by whatever the résumé parser
+      // reads (a résumé can carry a different name). Manual recruiter uploads keep
+      // the AI-filled identity (they start from placeholders).
+      const isApplication = row.source === 'Application';
+      await CandidateRepo.completeAnalysis(id, parsed, {
+        preserveName: isApplication,
+        preserveEmail: isApplication,
+        preservePhone: isApplication && Boolean(row.phone),
+        analyzedFrom: 'resume',
+      });
+      console.log('[worker] analyzed candidate', id);
+    }
 
     // Best-effort semantic embedding for cross-role matching. NEVER allowed to
     // fail the analysis: the candidate is already 'completed' above, and the
