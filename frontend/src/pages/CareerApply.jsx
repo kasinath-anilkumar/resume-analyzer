@@ -272,11 +272,16 @@ const CareerApply = () => {
     if (!form.name || !form.email) { setError('Please provide your name and email.'); return; }
     if (form.phone && !isValidPhoneNumber(form.phone)) { setError('Please enter a valid phone number.'); return; }
     const reuseSaved = usePrimaryResume && hasPrimaryResume && !file;
-    if (!file && !reuseSaved) { setError('Please attach your résumé.'); return; }
+    if (!enterDetailsManually && !file && !reuseSaved) { setError('Please attach your résumé.'); return; }
 
     const fd = new FormData();
-    if (file) fd.append('resume', file);
-    if (reuseSaved) fd.append('usePrimaryResume', 'true');
+    if (enterDetailsManually) {
+      // No résumé — send the structured details for the backend to store directly.
+      fd.append('manualDetails', JSON.stringify(manualResume));
+    } else {
+      if (file) fd.append('resume', file);
+      if (reuseSaved) fd.append('usePrimaryResume', 'true');
+    }
     fd.append('jobId', id);
     fd.append('name', form.name);
     fd.append('email', form.email);

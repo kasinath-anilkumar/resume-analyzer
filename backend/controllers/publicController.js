@@ -5,6 +5,7 @@ const ParserService = require('../services/parserService');
 const AIService = require('../services/aiService');
 const StorageService = require('../services/storageService');
 const { scoreQuiz } = require('../services/quizScoring');
+const CandidateMatcher = require('../services/candidateMatcher');
 
 const resolveAiConfig = async () => {
   try {
@@ -14,6 +15,35 @@ const resolveAiConfig = async () => {
     return {};
   }
 };
+
+// --- Manual details entry (applicant has no résumé) -------------------------
+// Parse the structured details the careers form collects and map them to the
+// candidate's stored shapes (matching what the AI parser would produce, so the
+// recruiter UI renders them identically). Returns null when nothing usable.
+const parseManualDetails = (raw) => {
+  let md = raw;
+  if (typeof raw === 'string') { try { md = JSON.parse(raw); } catch { return null; } }
+  if (!md || typeof md !== 'object') return null;
+  const has = (arr) => Array.isArray(arr) && arr.length > 0;
+  if (!String(md.skills || '').trim() && !has(md.education) && !has(md.experience) && !has(md.projects)) return null;
+  return md;
+};
+
+const mapManualDetails = (md) => ({
+  skills: String(md.skills || '')
+    .split(/[,\n;]+/).map((s) => s.trim()).filter(Boolean),
+  education: (Array.isArray(md.education) ? md.education : [])
+    .filter((e) => e && (e.school || e.degree))
+    .map((e) => ({ school: e.school || '', degree: e.degree || '', fieldOfStudy: '', startYear: '', endYear: e.year || '' })),
+  experience: (Array.isArray(md.experience) ? md.experience : [])
+    .filter((e) => e && (e.company || e.title))
+    .map((e) => ({ title: e.title || '', company: e.company || '', startDate: '', endDate: e.duration || '', description: e.desc || '' })),
+  projects: (Array.isArray(md.projects) ? md.projects : [])
+    .filter((p) => p && p.name)
+    .map((p) => ({ title: p.name || '', link: '', description: p.desc || '' })),
+});
+
+const verdictFromScore = (s) => (s >= 75 ? 'Strong Fit' : s >= 55 ? 'Potential Fit' : s >= 40 ? 'Weak Fit' : 'Not a Fit');
 
 // @desc    Public list of open jobs (careers page)
 // @route   GET /api/public/jobs
@@ -54,10 +84,12 @@ exports.apply = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Name, email and a job are required.' });
     }
     // A logged-in applicant (attachApplicant) may reuse their saved primary
-    // résumé instead of uploading one.
+    // résumé instead of uploading one. An applicant with NO résumé may instead
+    // enter their details manually (manualDetails).
     const usePrimaryResume = String(req.body.usePrimaryResume) === 'true' && Boolean(req.applicant?.resumeUrl);
-    if ((!req.file || !req.file.buffer) && !usePrimaryResume) {
-      return res.status(400).json({ success: false, message: 'Please attach your résumé.' });
+    const manualDetails = parseManualDetails(req.body.manualDetails);
+    if ((!req.file || !req.file.buffer) && !usePrimaryResume && !manualDetails) {
+      return res.status(400).json({ success: false, message: 'Please attach your résumé, or enter your details manually.' });
     }
 
     // 1) Job must exist and be open. Use the FULL job (with quiz answer keys) so
@@ -103,6 +135,49 @@ exports.apply = async (req, res) => {
       quizResult = scoreQuiz(job.quiz, quizAnswers, {
         timeSpentSeconds: req.body.quizTimeSpent,
         tabSwitches: req.body.quizTabSwitches,
+      });
+    }
+
+    // 2c) MANUAL DETAILS path — applicant has no résumé. Store the structured
+    //     details DIRECTLY (no file, no AI round-trip) so the profile is complete
+    //     and searchable immediately, and compute an instant deterministic fit
+    //     score against the role (the keyword matcher needs no AI/network).
+    if (manualDetails && (!req.file || !req.file.buffer) && !usePrimaryResume) {
+      const mapped = mapManualDetails(manualDetails);
+      const det = CandidateMatcher.scoreMatch(
+        { skills: mapped.skills, experience: mapped.experience, projects: mapped.projects, aiAnalysis: {} },
+        job
+      );
+      const candidate = await CandidateRepo.create({
+        name: name.trim(),
+        email: String(email).trim().toLowerCase(),
+        phone: (phone || '').trim(),
+        currentLocation: (currentLocation || '').trim(),
+        salaryExpectation: (salaryExpectation || '').trim(),
+        skills: mapped.skills,
+        education: mapped.education,
+        experience: mapped.experience,
+        projects: mapped.projects,
+        resumeUrl: null, // no résumé on file — details entered manually
+        jobId: job._id,
+        applicantId: req.applicant?.id,
+        status: 'Applied',
+        source: 'Application',
+        screeningAnswers,
+        quizResult,
+        consentAt: new Date().toISOString(),
+        analysisStatus: 'completed', // nothing to parse; scored deterministically below
+        aiAnalysis: {
+          overallScore: det.score,
+          screeningVerdict: verdictFromScore(det.score),
+          matchExplanation: det.reason,
+          manualEntry: true, // flags "no résumé — details entered by the applicant"
+        },
+      });
+      return res.status(201).json({
+        success: true,
+        message: `Thank you, ${name.trim()}! Your application for ${job.title} has been received.`,
+        data: { _id: candidate._id },
       });
     }
 
