@@ -9,6 +9,7 @@ import {
   User,
   ExternalLink,
   ChevronRight,
+  ChevronLeft,
   Plus,
   Loader2,
   SlidersHorizontal,
@@ -22,6 +23,9 @@ import {
   UserPlus,
   MapPin
 } from 'lucide-react';
+
+const PAGE_SIZE = 25; // server-side page size for the candidate list
+
 const Candidates = () => {
   const { user } = useAuth();
   const canDelete = ['Admin', 'Recruiter'].includes(user?.role);
@@ -38,7 +42,9 @@ const Candidates = () => {
   const [selectedStatus, setSelectedStatus] = useState(searchParams.get('status') || '');
   const [minScore, setMinScore] = useState('');
   const [selectedSkill, setSelectedSkill] = useState('');
-  const [selectedVerdict, setSelectedVerdict] = useState(''); // AI screening verdict (client-side)
+  const [selectedVerdict, setSelectedVerdict] = useState(''); // AI screening verdict (server-side)
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0); // total matches across all pages (from server)
   const [distanceSort, setDistanceSort] = useState(''); // '' | 'nearest' | 'farthest'
   const [salarySort, setSalarySort] = useState('');     // '' | 'high' | 'low'
   const [showFilters, setShowFilters] = useState(false);
@@ -74,16 +80,16 @@ const Candidates = () => {
       if (selectedStatus) queryParams.append('status', selectedStatus);
       if (minScore) queryParams.append('minScore', minScore);
       if (selectedSkill) queryParams.append('skill', selectedSkill);
+      if (selectedVerdict) queryParams.append('verdict', selectedVerdict);
+      queryParams.append('page', String(page));
+      queryParams.append('pageSize', String(PAGE_SIZE));
 
       const res = await api.get(`/candidates?${queryParams.toString()}`);
       if (res.data.success) {
-        // Rank best-first by AI score; fall back to most-recent for ties.
-        const ranked = [...res.data.data].sort((a, b) => {
-          const diff = (b.aiAnalysis?.overallScore || 0) - (a.aiAnalysis?.overallScore || 0);
-          if (diff !== 0) return diff;
-          return new Date(b.createdAt) - new Date(a.createdAt);
-        });
-        setCandidates(ranked);
+        // The server already returns this page ordered best-first (highest AI
+        // score). No client-side re-sort — that would only reorder within a page.
+        setCandidates(res.data.data);
+        setTotal(res.data.total ?? res.data.data.length);
       }
     } catch (err) {
       console.error('Error fetching candidates', err);
@@ -102,9 +108,17 @@ const Candidates = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [candidates]);
 
+  // Any filter change resets to page 1 (so you don't land on an out-of-range page).
+  useEffect(() => {
+    setPage(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search, selectedJobId, selectedStatus, minScore, selectedSkill, selectedVerdict]);
+
+  // Fetch whenever the page or any (server-side) filter changes.
   useEffect(() => {
     fetchCandidates();
-  }, [search, selectedJobId, selectedStatus, minScore, selectedSkill]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, search, selectedJobId, selectedStatus, minScore, selectedSkill, selectedVerdict]);
 
   const toggleSelectCandidate = (id) => {
     setSelectedCandidateIds((prev) =>
@@ -152,11 +166,9 @@ const Candidates = () => {
     return m ? parseInt(m[0], 10) : null;
   };
 
-  // Client-side AI verdict filter (verdict lives in aiAnalysis jsonb).
-  const displayed = candidates.filter((c) => {
-    if (selectedVerdict && (c.aiAnalysis?.screeningVerdict || '') !== selectedVerdict) return false;
-    return true;
-  });
+  // Verdict filtering is now applied server-side (see fetchCandidates). The
+  // distance/salary sorts below still operate on the current page only.
+  const displayed = candidates;
 
   // Sorting. "Nearest" measures each candidate's location against the SELECTED
   // job's location (needs a job selected + known coordinates on both sides).
@@ -198,15 +210,43 @@ const Candidates = () => {
     return 'bg-rose-500/10 text-rose-600 border border-rose-500/20';
   };
 
-  // Export the currently filtered candidates to a CSV file (client-side).
-  const exportCsv = () => {
-    if (!sorted.length) return;
+  const [exporting, setExporting] = useState(false);
+
+  // Export ALL rows matching the current filters (not just the visible page).
+  // Pulls up to 500 from the server so export isn't limited to one page.
+  const exportCsv = async () => {
+    setExporting(true);
+    try {
+      const qp = new URLSearchParams();
+      if (search) qp.append('search', search);
+      if (selectedJobId) qp.append('jobId', selectedJobId);
+      if (selectedStatus) qp.append('status', selectedStatus);
+      if (minScore) qp.append('minScore', minScore);
+      if (selectedSkill) qp.append('skill', selectedSkill);
+      if (selectedVerdict) qp.append('verdict', selectedVerdict);
+      qp.append('page', '1');
+      qp.append('pageSize', '500');
+      const res = await api.get(`/candidates?${qp.toString()}`);
+      const all = res.data?.data || [];
+      if (!all.length) return;
+      if ((res.data?.total ?? all.length) > all.length) {
+        alert(`Exporting the first ${all.length} of ${res.data.total} matches. Narrow the filters to export a smaller, complete set.`);
+      }
+      exportRowsToCsv(all);
+    } catch (err) {
+      console.error('Export failed', err);
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const exportRowsToCsv = (list) => {
     const headers = ['Name', 'Email', 'Phone', 'Location', 'Salary Expectation', 'Target Role', 'Department', 'Status', 'AI Verdict', 'Overall Score', 'Match %', 'Skills', 'Applied'];
     const esc = (v) => {
       const s = String(v ?? '');
       return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     };
-    const rows = sorted.map((c) =>
+    const rows = list.map((c) =>
       [
         c.name,
         c.email,
@@ -256,12 +296,12 @@ const Candidates = () => {
           </Link>
           <button
             onClick={exportCsv}
-            disabled={!candidates.length}
-            title="Export the filtered candidates to CSV"
+            disabled={!candidates.length || exporting}
+            title="Export all candidates matching the current filters to CSV"
             className="flex items-center justify-center space-x-1.5 px-4 py-2.5 border border-slate-200 dark:border-darkBorder hover:bg-slate-50 dark:hover:bg-slate-800/50 text-slate-600 dark:text-slate-300 rounded-xl text-xs font-semibold transition disabled:opacity-50 w-full sm:w-auto"
           >
-            <Download size={15} />
-            <span>Export CSV</span>
+            {exporting ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />}
+            <span>{exporting ? 'Exporting…' : 'Export CSV'}</span>
           </button>
           <Link
             to="/candidates/new"
@@ -712,6 +752,33 @@ const Candidates = () => {
             })}
           </div>
         </>
+      )}
+
+      {/* Pagination — server-side; page 1 is the highest-scoring candidates. */}
+      {!loading && total > 0 && (
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-2 px-1 pt-1">
+          <span className="text-[11px] text-slate-400">
+            Showing <strong className="text-slate-600 dark:text-slate-300">{(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, total)}</strong> of{' '}
+            <strong className="text-slate-600 dark:text-slate-300">{total}</strong> candidate{total === 1 ? '' : 's'}
+          </span>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page <= 1}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-white dark:bg-darkCard border border-slate-200 dark:border-darkBorder text-slate-600 dark:text-slate-300 disabled:opacity-40 hover:text-brand-500 transition"
+            >
+              <ChevronLeft size={13} /> Prev
+            </button>
+            <span className="text-[11px] text-slate-500 px-1">Page {page} / {Math.max(1, Math.ceil(total / PAGE_SIZE))}</span>
+            <button
+              onClick={() => setPage((p) => p + 1)}
+              disabled={page >= Math.ceil(total / PAGE_SIZE)}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-white dark:bg-darkCard border border-slate-200 dark:border-darkBorder text-slate-600 dark:text-slate-300 disabled:opacity-40 hover:text-brand-500 transition"
+            >
+              Next <ChevronRight size={13} />
+            </button>
+          </div>
+        </div>
       )}
 
       {/* Floating Talents Compare Panel */}

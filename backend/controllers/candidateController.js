@@ -149,9 +149,17 @@ exports.createManualCandidate = async (req, res) => {
 // @access  Private
 exports.getCandidates = async (req, res) => {
   try {
-    const { jobId, status, minScore, search, skill } = req.query;
-    const candidates = await CandidateRepo.listApi({ jobId, status, minScore, search, skill });
-    return res.json({ success: true, count: candidates.length, data: candidates });
+    const { jobId, status, minScore, search, skill, verdict, page, pageSize } = req.query;
+    // SQL-side filtered pagination — never loads the whole table into memory.
+    const result = await CandidateRepo.listApiPaged({ jobId, status, minScore, search, skill, verdict, page, pageSize });
+    return res.json({
+      success: true,
+      count: result.rows.length,
+      total: result.total,
+      page: result.page,
+      pageSize: result.pageSize,
+      data: result.rows,
+    });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ success: false, message: 'Server error retrieving candidates' });

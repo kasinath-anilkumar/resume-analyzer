@@ -192,6 +192,62 @@ const CandidateRepo = {
     });
   },
 
+  // SQL-side paginated + filtered list (the search_candidates RPC does all the
+  // heavy filtering in Postgres, returning ONE page + the full match count — so
+  // the whole candidates table is never loaded into Node). Duplicate detection is
+  // bounded to the page's own emails instead of scanning the entire table.
+  // Returns { rows, total, page, pageSize }.
+  async listApiPaged({ jobId, status, minScore, search, skill, verdict, page = 1, pageSize = 25 } = {}) {
+    const limit = Math.min(Math.max(parseInt(pageSize, 10) || 25, 1), 500);
+    const p = Math.max(parseInt(page, 10) || 1, 1);
+    const offset = (p - 1) * limit;
+
+    const { data, error } = await getClient().rpc('search_candidates', {
+      p_job_id: jobId || null,
+      p_status: status || null,
+      p_min_score: minScore ? (parseInt(minScore, 10) || 0) : 0,
+      p_search: search ? String(search).trim() : null,
+      p_skill: skill ? String(skill).trim() : null,
+      p_verdict: verdict || null,
+      p_limit: limit,
+      p_offset: offset,
+    });
+    if (error) throw error;
+
+    const total = data && data.length ? Number(data[0].total_count) : 0;
+    const rows = (data || []).map((r) => toApi(r.candidate));
+
+    // Bounded duplicate/other-application detection: look up other apps only for
+    // THIS page's emails (a small IN query), not the whole table.
+    const pageEmails = [...new Set(rows.map((c) => c.email).filter(Boolean))];
+    const byEmail = {};
+    if (pageEmails.length) {
+      const { data: others } = await getClient()
+        .from(TABLE).select('id, email, job_id').is('deleted_at', null).in('email', pageEmails);
+      (others || []).forEach((r) => {
+        const e = String(r.email || '').toLowerCase();
+        if (e) (byEmail[e] = byEmail[e] || []).push(r);
+      });
+    }
+    const jobIdsNeeded = new Set(rows.map((c) => String(c.jobId)));
+    rows.forEach((c) => (byEmail[String(c.email || '').toLowerCase()] || []).forEach((r) => jobIdsNeeded.add(String(r.job_id))));
+    const jobs = await jobLookup([...jobIdsNeeded], ['title', 'department']);
+
+    const mapped = rows.map((c) => {
+      const group = byEmail[String(c.email || '').toLowerCase()] || [];
+      const sameJob = group.filter((r) => String(r.job_id) === String(c.jobId) && String(r.id) !== String(c._id));
+      const otherJobIds = [...new Set(group.filter((r) => String(r.job_id) !== String(c.jobId)).map((r) => String(r.job_id)))];
+      return {
+        ...c,
+        jobId: jobs[String(c.jobId)] || { _id: c.jobId, title: 'Unknown', department: 'Unknown' },
+        isDuplicate: sameJob.length > 0,
+        duplicateCount: sameJob.length + 1,
+        otherApplications: otherJobIds.map((jid) => ({ _id: jid, title: jobs[jid]?.title || 'Unknown role' })),
+      };
+    });
+    return { rows: mapped, total, page: p, pageSize: limit };
+  },
+
   // Single candidate with a richer populated job object.
   async findByIdApi(id) {
     const { data, error } = await getClient().from(TABLE).select('*').eq('id', id).is('deleted_at', null).maybeSingle();

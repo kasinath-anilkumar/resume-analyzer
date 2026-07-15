@@ -130,6 +130,11 @@ create table if not exists candidates (
 create index if not exists candidates_job_id_idx on candidates(job_id);
 create index if not exists candidates_status_idx on candidates(status);
 create index if not exists candidates_email_idx on candidates(lower(email));
+-- Indexes backing SQL-side candidate search/pagination (search_candidates RPC).
+create extension if not exists pg_trgm;                                    -- fast ILIKE
+create index if not exists candidates_name_trgm_idx on candidates using gin (name gin_trgm_ops);
+create index if not exists candidates_skills_gin_idx on candidates using gin (skills);
+create index if not exists candidates_created_at_idx on candidates(created_at desc);
 -- For installs created before these columns existed:
 alter table candidates add column if not exists interviews jsonb not null default '[]';
 alter table candidates add column if not exists source text not null default 'Manual';        -- Manual | Application
@@ -250,3 +255,53 @@ create table if not exists audit_log (
 create index if not exists audit_log_created_at_idx on audit_log(created_at desc);
 create index if not exists audit_log_action_idx on audit_log(action);
 create index if not exists audit_log_entity_idx on audit_log(entity_type);
+
+-- ---------------------------------------------------------------------------
+--  search_candidates — SQL-side filtered pagination for the recruiter candidate
+--  list. Pushes every heavy filter (job, status, min AI score, skill, free-text
+--  search, AI verdict) into Postgres and returns ONE page + the full match count,
+--  so the API never loads the whole candidates table into the Node process.
+--  Returns each row as jsonb (to_jsonb) so it stays in sync with the table shape
+--  without re-declaring every column. Ordered newest-first.
+-- ---------------------------------------------------------------------------
+create or replace function search_candidates(
+  p_job_id   uuid    default null,
+  p_status   text    default null,
+  p_min_score integer default 0,
+  p_search   text    default null,
+  p_skill    text    default null,
+  p_verdict  text    default null,
+  p_limit    integer default 25,
+  p_offset   integer default 0
+) returns table (candidate jsonb, total_count bigint)
+language sql stable as $$
+  with filtered as (
+    select c.*
+    from candidates c
+    where c.deleted_at is null
+      and (p_job_id is null or c.job_id = p_job_id)
+      and (p_status is null or c.status = p_status)
+      and (p_verdict is null or (c.ai_analysis->>'screeningVerdict') = p_verdict)
+      and (coalesce(p_min_score, 0) = 0
+           or coalesce(nullif(c.ai_analysis->>'overallScore','')::numeric, 0) >= p_min_score)
+      and (p_skill is null or exists (
+             select 1 from unnest(c.skills) sk where sk ilike '%' || p_skill || '%'))
+      and (p_search is null or (
+             c.name  ilike '%' || p_search || '%'
+             or c.email ilike '%' || p_search || '%'
+             or exists (select 1 from unnest(c.skills) sk where sk ilike '%' || p_search || '%')
+             or exists (
+                  select 1 from jsonb_array_elements(
+                    case when jsonb_typeof(c.experience) = 'array' then c.experience else '[]'::jsonb end) e
+                  where (e->>'company') ilike '%' || p_search || '%'
+                     or (e->>'title')   ilike '%' || p_search || '%')
+      ))
+  )
+  select to_jsonb(f) as candidate, count(*) over() as total_count
+  from filtered f
+  -- Best-first (highest AI score), newest as the tiebreak — matches the list UX
+  -- so page 1 is the strongest candidates, not just the most recent.
+  order by coalesce(nullif(f.ai_analysis->>'overallScore','')::numeric, 0) desc, f.created_at desc
+  limit greatest(coalesce(p_limit, 25), 1)
+  offset greatest(coalesce(p_offset, 0), 0)
+$$;
