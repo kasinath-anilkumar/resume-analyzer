@@ -316,7 +316,13 @@ const CandidateRepo = {
       githubUrl: parsed.githubUrl || '',
       linkedInUrl: parsed.linkedInUrl || '',
       portfolioUrl: parsed.portfolioUrl || '',
-      aiAnalysis: parsed.aiAnalysis || {},
+      // Tag where this analysis came from (résumé vs the manual form) so the UI
+      // can label it. For a manual entry we also keep the manualEntry flag.
+      aiAnalysis: {
+        ...(parsed.aiAnalysis || {}),
+        ...(opts.analyzedFrom ? { analyzedFrom: opts.analyzedFrom } : {}),
+        ...(opts.analyzedFrom === 'form' ? { manualEntry: true } : {}),
+      },
       analysisStatus: 'completed',
       analysisError: '',
     };
@@ -330,8 +336,27 @@ const CandidateRepo = {
     if (opts.preserveName) delete row.name;
     if (opts.preserveEmail) delete row.email;
     if (opts.preservePhone) delete row.phone;
+    // Manual entries: keep the applicant's own structured details — the AI report
+    // adds the insights/score but must not overwrite what they entered.
+    if (opts.preserveProfile) {
+      delete row.skills; delete row.education; delete row.experience;
+      delete row.projects; delete row.certifications; delete row.languages;
+    }
     row.updated_at = new Date().toISOString();
     const { error } = await getClient().from(TABLE).update(row).eq('id', id).is('deleted_at', null);
+    if (error) throw error;
+    return true;
+  },
+
+  // Mark analysis complete WITHOUT changing the stored aiAnalysis — used to
+  // finalize a manual entry when AI is unavailable (keeps its deterministic
+  // baseline score) so it never ends up 'failed' or stuck 'pending'.
+  async markCompleted(id) {
+    const { error } = await getClient()
+      .from(TABLE)
+      .update({ analysis_status: 'completed', analysis_error: '', updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .is('deleted_at', null);
     if (error) throw error;
     return true;
   },

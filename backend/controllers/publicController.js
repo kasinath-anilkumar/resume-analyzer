@@ -166,12 +166,17 @@ exports.apply = async (req, res) => {
         screeningAnswers,
         quizResult,
         consentAt: new Date().toISOString(),
-        analysisStatus: 'completed', // nothing to parse; scored deterministically below
+        // Queue for background AI screening (the worker builds a profile from
+        // these fields and runs the full report). The deterministic score below
+        // is an INSTANT baseline so the candidate is scored + ranked immediately,
+        // and remains the score if AI is unconfigured/unavailable.
+        analysisStatus: 'pending',
         aiAnalysis: {
           overallScore: det.score,
           screeningVerdict: verdictFromScore(det.score),
           matchExplanation: det.reason,
-          manualEntry: true, // flags "no résumé — details entered by the applicant"
+          manualEntry: true,      // no résumé — details entered by the applicant
+          analyzedFrom: 'form',   // analysis is from the entered details, not a résumé
         },
       });
       return res.status(201).json({
