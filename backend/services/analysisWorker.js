@@ -38,6 +38,15 @@ async function processOne(row) {
       return CandidateRepo.failAnalysis(id, 'Could not read any text from the résumé.');
     }
 
+    // A recruiter may have trashed this candidate during the (slow) download/OCR
+    // above. Bail BEFORE the paid AI call so no credit/DB write is spent on a
+    // deleted candidate. Release the claim so a later restore re-queues it.
+    if (await CandidateRepo.isDeleted(id)) {
+      console.log('[worker] candidate deleted mid-analysis — skipping AI for', id);
+      await CandidateRepo.revertToPending(id).catch(() => {});
+      return;
+    }
+
     const parsed = await AIService.analyzeResume(text, job, await resolveAiConfig());
     // Applicants entered their own name/email/phone on the apply form — those are
     // authoritative and must NOT be overwritten by whatever the résumé parser

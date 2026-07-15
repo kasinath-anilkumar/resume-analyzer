@@ -271,7 +271,7 @@ const CandidateRepo = {
     if (opts.preserveEmail) delete row.email;
     if (opts.preservePhone) delete row.phone;
     row.updated_at = new Date().toISOString();
-    const { error } = await getClient().from(TABLE).update(row).eq('id', id);
+    const { error } = await getClient().from(TABLE).update(row).eq('id', id).is('deleted_at', null);
     if (error) throw error;
     return true;
   },
@@ -280,7 +280,34 @@ const CandidateRepo = {
     const { error } = await getClient()
       .from(TABLE)
       .update({ analysis_status: 'failed', analysis_error: String(message || 'Analysis failed'), updated_at: new Date().toISOString() })
-      .eq('id', id);
+      .eq('id', id)
+      .is('deleted_at', null); // don't write onto a trashed candidate
+    if (error) throw error;
+    return true;
+  },
+
+  // Has this candidate been trashed (or hard-deleted)? Used by the worker to bail
+  // BEFORE the expensive AI call when a recruiter deletes a candidate mid-analysis
+  // — so no AI credit is spent on a résumé that's already been removed.
+  async isDeleted(id) {
+    const { data, error } = await getClient()
+      .from(TABLE)
+      .select('deleted_at')
+      .eq('id', id)
+      .maybeSingle();
+    if (error) throw error;
+    return !data || data.deleted_at != null; // vanished (hard-deleted) counts as deleted
+  },
+
+  // Release a claimed candidate back to the queue (processing -> pending). If it
+  // was trashed mid-analysis this leaves it inert (claimNextPending filters
+  // deleted rows) yet ready to re-analyze automatically if it's later restored.
+  async revertToPending(id) {
+    const { error } = await getClient()
+      .from(TABLE)
+      .update({ analysis_status: 'pending', updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .eq('analysis_status', 'processing');
     if (error) throw error;
     return true;
   },
