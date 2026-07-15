@@ -25,11 +25,14 @@ exports.getMyApplications = async (req, res) => {
 // @access  Private (applicant)
 exports.updateMe = async (req, res) => {
   try {
-    const { name, phone, linkedinUrl, portfolioUrl, bio, resumeUrl, location } = req.body;
+    // resumeUrl is intentionally NOT read from the body — the résumé is set only
+    // via POST /api/portal/resume (a real upload). Accepting a client URL here
+    // previously enabled SSRF via the apply flow's "use primary résumé" fetch.
+    const { name, phone, linkedinUrl, portfolioUrl, bio, location } = req.body;
     if (name !== undefined && !String(name).trim()) {
       return res.status(400).json({ success: false, message: 'Name cannot be empty.' });
     }
-    const updated = await ApplicantRepo.updateProfile(req.applicant.id, { name, phone, linkedinUrl, portfolioUrl, bio, resumeUrl, location });
+    const updated = await ApplicantRepo.updateProfile(req.applicant.id, { name, phone, linkedinUrl, portfolioUrl, bio, location });
     return res.json({ success: true, data: updated });
   } catch (error) {
     console.error('Portal updateMe error:', error);
@@ -57,6 +60,25 @@ exports.uploadResume = async (req, res) => {
   } catch (error) {
     console.error('Portal uploadResume error:', error);
     return res.status(500).json({ success: false, message: 'Could not upload your résumé.' });
+  }
+};
+
+// @desc    Short-lived signed URL for the applicant's OWN primary résumé (private
+//          bucket). Scoped to the signed-in applicant — never another account.
+// @route   GET /api/portal/me/resume-url
+// @access  Private (applicant)
+exports.getMyResumeUrl = async (req, res) => {
+  try {
+    const me = await ApplicantRepo.findById(req.applicant.id);
+    if (!me || !me.resumeUrl) {
+      return res.status(404).json({ success: false, message: 'You have no résumé on file.' });
+    }
+    const url = await StorageService.getSignedUrl(me.resumeUrl);
+    if (!url) return res.status(502).json({ success: false, message: 'Could not prepare your résumé link.' });
+    return res.json({ success: true, url });
+  } catch (error) {
+    console.error('Portal résumé URL error:', error);
+    return res.status(500).json({ success: false, message: 'Could not load your résumé.' });
   }
 };
 

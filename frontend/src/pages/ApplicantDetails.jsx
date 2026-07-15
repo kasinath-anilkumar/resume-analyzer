@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import api from '../services/api';
+import safeUrl from '../utils/safeUrl';
 import {
   User,
   Mail,
@@ -84,6 +85,14 @@ const ApplicantDetails = () => {
     };
     fetchApplicant();
   }, [id]);
+
+  // Résumés live in a private bucket — fetch a short-lived signed URL on demand.
+  const openResume = async () => {
+    try {
+      const res = await api.get(`/applicants/${id}/resume-url`);
+      if (res.data?.url) window.open(res.data.url, '_blank', 'noopener,noreferrer');
+    } catch { /* résumé unavailable */ }
+  };
 
   if (loading) {
     return (
@@ -193,27 +202,26 @@ const ApplicantDetails = () => {
             {applicant.resumeUrl && (
               <div className="space-y-2.5 pt-2">
                 <span className="text-[9.5px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-widest block">Attached Resume</span>
-                <a
-                  href={applicant.resumeUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex items-center space-x-3 p-3 bg-slate-50/50 hover:bg-slate-100/50 dark:bg-slate-900/40 dark:hover:bg-slate-800/40 border border-slate-200/60 dark:border-darkBorder rounded-2xl text-xs font-bold text-slate-700 dark:text-slate-300 transition duration-200"
+                <button
+                  type="button"
+                  onClick={openResume}
+                  className="w-full flex items-center space-x-3 p-3 bg-slate-50/50 hover:bg-slate-100/50 dark:bg-slate-900/40 dark:hover:bg-slate-800/40 border border-slate-200/60 dark:border-darkBorder rounded-2xl text-xs font-bold text-slate-700 dark:text-slate-300 transition duration-200"
                 >
                   <div className="w-8 h-8 rounded-xl bg-brand-500/10 text-brand-600 dark:text-brand-400 flex items-center justify-center flex-shrink-0">
                     <FileText size={16} />
                   </div>
-                  <span className="truncate flex-1">Download Candidate CV</span>
+                  <span className="truncate flex-1 text-left">Download Candidate CV</span>
                   <ExternalLink size={12} className="text-slate-400 flex-shrink-0" />
-                </a>
+                </button>
               </div>
             )}
 
             {/* Social Handles panel */}
-            {(applicant.linkedinUrl || applicant.portfolioUrl) && (
+            {(safeUrl(applicant.linkedinUrl) || safeUrl(applicant.portfolioUrl)) && (
               <div className="flex items-center justify-center space-x-3 pt-4 border-t border-slate-100 dark:border-darkBorder/40">
-                {applicant.linkedinUrl && (
+                {safeUrl(applicant.linkedinUrl) && (
                   <a
-                    href={applicant.linkedinUrl}
+                    href={safeUrl(applicant.linkedinUrl)}
                     target="_blank"
                     rel="noreferrer"
                     className="flex-1 flex items-center justify-center space-x-1.5 py-2 px-3 border border-slate-200 dark:border-darkBorder rounded-xl hover:bg-indigo-50 dark:hover:bg-indigo-950/20 text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 text-xs font-semibold transition"
@@ -222,9 +230,9 @@ const ApplicantDetails = () => {
                     <span>LinkedIn</span>
                   </a>
                 )}
-                {applicant.portfolioUrl && (
+                {safeUrl(applicant.portfolioUrl) && (
                   <a
-                    href={applicant.portfolioUrl}
+                    href={safeUrl(applicant.portfolioUrl)}
                     target="_blank"
                     rel="noreferrer"
                     className="flex-1 flex items-center justify-center space-x-1.5 py-2 px-3 border border-slate-200 dark:border-darkBorder rounded-xl hover:bg-emerald-50 dark:hover:bg-emerald-950/20 text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400 text-xs font-semibold transition"

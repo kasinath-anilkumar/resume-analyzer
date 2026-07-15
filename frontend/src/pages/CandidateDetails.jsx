@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import api, { API_ORIGIN } from '../services/api';
+import api from '../services/api';
+import safeUrl from '../utils/safeUrl';
 import { useAuth } from '../context/AuthContext';
 import { useLiveRefresh } from '../hooks/useLiveRefresh';
 import {
@@ -126,6 +127,15 @@ const CandidateDetails = () => {
 
   const canManage = ['Admin', 'Recruiter'].includes(user?.role);
   const canDelete = canManage;
+
+  // Résumés live in a private bucket — fetch a short-lived signed URL on demand
+  // rather than linking the stored path directly.
+  const openResume = async () => {
+    try {
+      const res = await api.get(`/candidates/${id}/resume-url`);
+      if (res.data?.url) window.open(res.data.url, '_blank', 'noopener,noreferrer');
+    } catch { /* résumé unavailable */ }
+  };
 
   // Recruiter Notes state
   const [newNote, setNewNote] = useState('');
@@ -452,15 +462,14 @@ const CandidateDetails = () => {
         {/* Change Stage dropdown */}
         <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
           {candidate.resumeUrl && (
-            <a
-              href={/^https?:\/\//.test(candidate.resumeUrl) ? candidate.resumeUrl : `${API_ORIGIN}${candidate.resumeUrl}`}
-              target="_blank"
-              rel="noreferrer"
+            <button
+              type="button"
+              onClick={openResume}
               className="flex items-center justify-center space-x-1.5 px-3 py-2 border border-slate-200 dark:border-darkBorder hover:bg-slate-50 dark:hover:bg-slate-800/50 text-slate-600 dark:text-slate-300 rounded-xl text-xs font-semibold transition flex-1 sm:flex-initial text-center"
             >
               <FileText size={14} />
               <span>Download CV</span>
-            </a>
+            </button>
           )}
 
           <select
@@ -718,18 +727,18 @@ const CandidateDetails = () => {
 
             {/* Social links */}
             <div className="flex items-center space-x-2 pt-2 border-t border-slate-100 dark:border-darkBorder">
-              {candidate.githubUrl && (
-                <a href={candidate.githubUrl} target="_blank" rel="noreferrer" className="p-2 border border-slate-200 dark:border-darkBorder rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-500 hover:text-slate-700 transition">
+              {safeUrl(candidate.githubUrl) && (
+                <a href={safeUrl(candidate.githubUrl)} target="_blank" rel="noreferrer" className="p-2 border border-slate-200 dark:border-darkBorder rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-500 hover:text-slate-700 transition">
                   <Github size={15} />
                 </a>
               )}
-              {candidate.linkedInUrl && (
-                <a href={candidate.linkedInUrl} target="_blank" rel="noreferrer" className="p-2 border border-slate-200 dark:border-darkBorder rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-500 hover:text-slate-700 transition">
+              {safeUrl(candidate.linkedInUrl) && (
+                <a href={safeUrl(candidate.linkedInUrl)} target="_blank" rel="noreferrer" className="p-2 border border-slate-200 dark:border-darkBorder rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-500 hover:text-slate-700 transition">
                   <Linkedin size={15} />
                 </a>
               )}
-              {candidate.portfolioUrl && (
-                <a href={candidate.portfolioUrl} target="_blank" rel="noreferrer" className="p-2 border border-slate-200 dark:border-darkBorder rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-500 hover:text-slate-700 transition">
+              {safeUrl(candidate.portfolioUrl) && (
+                <a href={safeUrl(candidate.portfolioUrl)} target="_blank" rel="noreferrer" className="p-2 border border-slate-200 dark:border-darkBorder rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-500 hover:text-slate-700 transition">
                   <Globe size={15} />
                 </a>
               )}
@@ -967,8 +976,8 @@ const CandidateDetails = () => {
                     <div key={idx} className="p-3 bg-slate-50 dark:bg-slate-900/35 border border-slate-200/50 dark:border-darkBorder/40 rounded-xl space-y-1">
                       <div className="flex justify-between items-center">
                         <h4 className="font-bold text-slate-700 dark:text-slate-200 text-xs">{proj.title}</h4>
-                        {proj.link && (
-                          <a href={proj.link} target="_blank" rel="noreferrer" className="text-slate-400 hover:text-brand-500">
+                        {safeUrl(proj.link) && (
+                          <a href={safeUrl(proj.link)} target="_blank" rel="noreferrer" className="text-slate-400 hover:text-brand-500">
                             <ExternalLink size={12} />
                           </a>
                         )}

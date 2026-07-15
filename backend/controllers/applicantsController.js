@@ -96,6 +96,25 @@ exports.getApplicantDetails = async (req, res) => {
   }
 };
 
+// @desc    Short-lived signed URL for a portal user's primary résumé (private
+//          bucket). Gated behind recruiter auth; the URL expires quickly.
+// @route   GET /api/applicants/:id/resume-url
+// @access  Private (Admin, Recruiter)
+exports.getApplicantResumeUrl = async (req, res) => {
+  try {
+    const applicant = await ApplicantRepo.findById(req.params.id);
+    if (!applicant || !applicant.resumeUrl) {
+      return res.status(404).json({ success: false, message: 'No résumé on file for this portal user.' });
+    }
+    const url = await StorageService.getSignedUrl(applicant.resumeUrl);
+    if (!url) return res.status(502).json({ success: false, message: 'Could not prepare the résumé link.' });
+    return res.json({ success: true, url });
+  } catch (error) {
+    console.error('Applicant résumé URL error:', error);
+    return res.status(500).json({ success: false, message: 'Could not load the résumé.' });
+  }
+};
+
 // @desc    Update a portal user's profile (recruiter/admin correction).
 // @route   PUT /api/applicants/:id
 // @access  Private (Admin, Recruiter)

@@ -2,6 +2,19 @@ const jwt = require('jsonwebtoken');
 const UserRepo = require('../models/userRepo');
 const ApplicantRepo = require('../models/applicantRepo');
 
+// Pin the algorithm so a token can only be validated as HS256 (defense-in-depth
+// against algorithm-confusion if an asymmetric key is ever introduced).
+const verifyToken = (token) => jwt.verify(token, process.env.JWT_SECRET, { algorithms: ['HS256'] });
+
+// Session revocation: a token minted BEFORE the account's last password change is
+// no longer valid (changing/resetting a password logs out other sessions). 1s of
+// skew tolerance. Accounts that never changed their password have no timestamp →
+// tokens stay valid (backward compatible).
+const isStaleSession = (decoded, passwordChangedAt) => {
+  if (!passwordChangedAt || !decoded || !decoded.iat) return false;
+  return decoded.iat * 1000 < new Date(passwordChangedAt).getTime() - 1000;
+};
+
 // Protect routes — verify the JWT and load the current user from Supabase.
 const protect = async (req, res, next) => {
   let token;
@@ -9,7 +22,7 @@ const protect = async (req, res, next) => {
   if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
     try {
       token = req.headers.authorization.split(' ')[1];
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      const decoded = verifyToken(token);
 
       // Applicant (careers-portal) tokens are signed with the same secret but a
       // distinct type — they must NEVER authenticate a recruiter route.
@@ -20,6 +33,9 @@ const protect = async (req, res, next) => {
       req.user = await UserRepo.findById(decoded.id);
       if (!req.user) {
         return res.status(401).json({ success: false, message: 'Not authorized, user not found' });
+      }
+      if (isStaleSession(decoded, req.user.passwordChangedAt)) {
+        return res.status(401).json({ success: false, message: 'Session expired. Please sign in again.' });
       }
       // Controllers read req.user.id (the Supabase uuid).
       req.user.id = req.user._id;
@@ -59,13 +75,16 @@ const protectApplicant = async (req, res, next) => {
   }
   try {
     const token = req.headers.authorization.split(' ')[1];
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = verifyToken(token);
     if (decoded.typ !== 'applicant') {
       return res.status(401).json({ success: false, message: 'Not authorized' });
     }
     const applicant = await ApplicantRepo.findById(decoded.id);
     if (!applicant) {
       return res.status(401).json({ success: false, message: 'Not authorized, account not found' });
+    }
+    if (isStaleSession(decoded, applicant.passwordChangedAt)) {
+      return res.status(401).json({ success: false, message: 'Session expired. Please sign in again.' });
     }
     // Controllers scope every query to this applicant's own email.
     req.applicant = { id: applicant._id, email: applicant.email, name: applicant.name };
@@ -84,10 +103,10 @@ const attachApplicant = async (req, res, next) => {
   try {
     const h = req.headers.authorization;
     if (h && h.startsWith('Bearer')) {
-      const decoded = jwt.verify(h.split(' ')[1], process.env.JWT_SECRET);
+      const decoded = verifyToken(h.split(' ')[1]);
       if (decoded.typ === 'applicant') {
         const a = await ApplicantRepo.findById(decoded.id);
-        if (a) req.applicant = a; // full profile (incl. resumeUrl)
+        if (a && !isStaleSession(decoded, a.passwordChangedAt)) req.applicant = a; // full profile (incl. resumeUrl)
       }
     }
   } catch (_) {

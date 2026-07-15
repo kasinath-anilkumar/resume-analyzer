@@ -2,6 +2,7 @@ const bcrypt = require('bcryptjs');
 const { getClient } = require('../config/supabase');
 
 const TABLE = 'users';
+const BCRYPT_COST = 12; // work factor for password hashing
 
 // Map a DB row to the client-safe API shape (never includes the password hash).
 const toApi = (row) =>
@@ -10,6 +11,7 @@ const toApi = (row) =>
     name: row.name,
     email: row.email,
     role: row.role,
+    passwordChangedAt: row.password_changed_at || null, // used for session revocation
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -51,7 +53,7 @@ const UserRepo = {
   },
 
   async create({ name, email, password, role }) {
-    const salt = await bcrypt.genSalt(10);
+    const salt = await bcrypt.genSalt(BCRYPT_COST);
     const hashed = await bcrypt.hash(password, salt);
     const { data, error } = await getClient()
       .from(TABLE)
@@ -135,17 +137,20 @@ const UserRepo = {
     return data;
   },
 
-  // Set a new password (hashed) and clear any reset token.
+  // Set a new password (hashed) and clear any reset token. Stamps
+  // password_changed_at so sessions issued before now are revoked.
   async updatePassword(id, newPlainPassword) {
-    const salt = await bcrypt.genSalt(10);
+    const salt = await bcrypt.genSalt(BCRYPT_COST);
     const hashed = await bcrypt.hash(newPlainPassword, salt);
+    const now = new Date().toISOString();
     const { error } = await getClient()
       .from(TABLE)
       .update({
         password: hashed,
         reset_token_hash: null,
         reset_token_expires: null,
-        updated_at: new Date().toISOString(),
+        password_changed_at: now,
+        updated_at: now,
       })
       .eq('id', id);
     if (error) throw error;

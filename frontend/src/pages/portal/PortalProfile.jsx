@@ -139,6 +139,14 @@ const PortalProfile = () => {
     } catch { /* ignore */ }
   };
 
+  // Résumés live in a private bucket — fetch a short-lived signed URL on demand.
+  const openResume = async () => {
+    try {
+      const res = await portalApi.get('/me/resume-url');
+      if (res.data?.url) window.open(res.data.url, '_blank', 'noopener,noreferrer');
+    } catch { /* résumé unavailable */ }
+  };
+
   const handlePasswordSubmit = async (e) => {
     e.preventDefault();
     setPasswordError('');
@@ -441,7 +449,7 @@ const PortalProfile = () => {
                         <div>
                           <span className="text-xs font-semibold uppercase tracking-wide block truncate max-w-[200px] sm:max-w-xs">{resumeFile.name}</span>
                           {resumeFile.url && (
-                            <a href={resumeFile.url} target="_blank" rel="noreferrer" className="text-[8.5px] text-[#c5a880] uppercase tracking-widest block mt-0.5 hover:underline">View résumé</a>
+                            <button type="button" onClick={openResume} className="text-[8.5px] text-[#c5a880] uppercase tracking-widest block mt-0.5 hover:underline">View résumé</button>
                           )}
                         </div>
                       </div>

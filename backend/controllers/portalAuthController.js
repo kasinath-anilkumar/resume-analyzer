@@ -1,7 +1,12 @@
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
+const bcrypt = require('bcryptjs');
 const ApplicantRepo = require('../models/applicantRepo');
 const EmailService = require('../services/emailService');
+
+// A valid bcrypt hash to compare against when an email doesn't exist, so login
+// timing is the same whether or not the account is found (no enumeration oracle).
+const DUMMY_HASH = bcrypt.hashSync('timing-equalizer-not-a-real-password', 12);
 
 // Applicant (careers-portal) auth. Deliberately SEPARATE from authController:
 // applicants self-register (public sign-up is enabled here, unlike recruiters)
@@ -34,8 +39,16 @@ exports.register = async (req, res) => {
     if (String(password).length < 6) {
       return res.status(400).json({ success: false, message: 'Password must be at least 6 characters.' });
     }
+    // Do NOT reveal whether the email already has an account (enumeration). If it
+    // exists, return the same generic 200 as a successful signup but WITHOUT a
+    // session token — the real owner can sign in or reset; an attacker learns
+    // nothing and gets no access.
     if (await ApplicantRepo.existsByEmail(email)) {
-      return res.status(400).json({ success: false, message: 'An account with this email already exists. Please sign in.' });
+      return res.status(200).json({
+        success: true,
+        exists: true,
+        message: 'If this email is new, your account is ready. If you already registered, please sign in.',
+      });
     }
     const applicant = await ApplicantRepo.create({ name: name.trim(), email, password, phone });
     return res.status(201).json({
@@ -58,7 +71,10 @@ exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
     const row = await ApplicantRepo.findRawByEmail(email);
-    if (row && (await ApplicantRepo.matchPassword(password, row))) {
+    // Always run a bcrypt compare (against a dummy hash when the account is
+    // missing) so response time doesn't reveal whether the email exists.
+    const ok = await ApplicantRepo.matchPassword(password, row || { password: DUMMY_HASH });
+    if (row && ok) {
       const applicant = ApplicantRepo.toApi(row);
       return res.json({
         success: true,

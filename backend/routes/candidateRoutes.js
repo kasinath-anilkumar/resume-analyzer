@@ -21,6 +21,7 @@ const {
   deleteInterview,
   moveCandidateJob,
   reanalyzeCandidate,
+  getResumeSignedUrl,
 } = require('../controllers/candidateController');
 const { protect, authorize } = require('../middleware/auth');
 const upload = require('../middleware/upload');
@@ -44,7 +45,7 @@ router.post('/embeddings/backfill', protect, authorize('Admin'), backfillEmbeddi
 // Upload resume & retrieve candidates
 router.route('/')
   .get(protect, getCandidates)
-  .post(protect, authorize('Admin', 'Recruiter'), upload.single('resume'), uploadResume);
+  .post(protect, authorize('Admin', 'Recruiter'), upload.single('resume'), upload.validateResumeContent, uploadResume);
 
 // Single candidate operations
 router.route('/:id')
@@ -61,6 +62,9 @@ router.put('/:id/status', protect, authorize('Admin', 'Recruiter'), updateCandid
 // GDPR: export all data held for a candidate (subject-access request)
 router.get('/:id/export', protect, authorize('Admin', 'Recruiter'), exportCandidate);
 
+// Short-lived signed URL to view/download the candidate's résumé (private bucket).
+router.get('/:id/resume-url', protect, getResumeSignedUrl);
+
 // Move to a different job / re-run AI analysis
 router.put('/:id/job', protect, authorize('Admin', 'Recruiter'), moveCandidateJob);
 router.post('/:id/reanalyze', protect, authorize('Admin', 'Recruiter'), reanalyzeCandidate);
@@ -69,8 +73,9 @@ router.post('/:id/reanalyze', protect, authorize('Admin', 'Recruiter'), reanalyz
 router.post('/:id/interviews', protect, authorize('Admin', 'Recruiter'), scheduleInterview);
 router.delete('/:id/interviews/:interviewId', protect, authorize('Admin', 'Recruiter'), deleteInterview);
 
-// Notes operations
-router.post('/:id/notes', protect, addNote);
+// Notes operations — writing notes is a recruiting action, so restrict to
+// Admin/Recruiter (a Hiring Manager can view but not annotate candidates).
+router.post('/:id/notes', protect, authorize('Admin', 'Recruiter'), addNote);
 router.delete('/:id/notes/:noteId', protect, deleteNote);
 
 module.exports = router;

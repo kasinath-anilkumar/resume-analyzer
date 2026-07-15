@@ -40,28 +40,45 @@ RLS is disabled; this key is the only guard on all candidate PII.
 
 ---
 
+### 4. Make the résumé storage bucket PRIVATE (security) _(code done)_
+Résumés are PII. The app no longer exposes any permanent public résumé URL — it
+serves each download through an authenticated, ownership-checked endpoint that
+mints a **60-second signed URL** (`/candidates/:id/resume-url`,
+`/applicants/:id/resume-url`, `/portal/me/resume-url`). New object names are
+random UUIDs. To complete the fix:
+- [ ] In the Supabase dashboard, set the résumé bucket (`SUPABASE_BUCKET`) to
+      **Private**. Signed URLs keep working; direct `.../object/public/...` links
+      stop working (that's the point). Existing rows keep functioning because the
+      download endpoints sign by object path.
+- [ ] Verify a résumé opens from the recruiter Candidate page and the portal
+      Profile page after flipping to private.
+
+---
+
 ## P1 — Soon
 
-### 4. Rate-limit store for multiple instances _(code done for single instance)_
+### 5. Rate-limit store for multiple instances _(code done for single instance)_
 Auth limiting is now two-layer (per-IP flood cap + per-account cap) so a branch
 behind one NAT isn't locked out. The store is in-memory (per-instance).
 - [ ] If you scale the **web tier to >1 instance**, add a shared store
       (Upstash/Redis or a Postgres store) so limits are enforced fleet-wide.
 
-### 5. Meta lead poll: single-writer _(code done — polling is per-instance)_
+### 6. Meta lead poll: single-writer _(code done — polling is per-instance)_
 - [ ] If >1 instance runs the poll, add a DB claim-lock (like the analysis queue's
       `claimNextPending`) so leads aren't fetched twice. With a single background
       worker this is already fine.
 
-### 6. Data retention (DB growth + GDPR)
+### 7. Data retention (DB growth + GDPR)
 Retention is **off by default**, so candidate rows (and résumé files) accumulate
 unbounded — the main driver of DB size at 50 branches.
 - [ ] Set **Settings → Data & Privacy → retention days** to a sane window (e.g.
       365) so old, non-hired candidates + their résumés are auto-purged.
 
-### 7. JWT lifetime
+### 8. JWT lifetime _(hardening shipped)_
 Access tokens last 30 days. Deleting a user or changing their role takes effect
-immediately (the server re-checks each request), but a leaked token stays valid.
+immediately (the server re-checks each request). A **password change/reset now
+revokes all existing sessions** (tokens issued earlier are rejected), and the
+server **refuses to boot** unless `JWT_SECRET` is ≥32 chars and not a placeholder.
 - [ ] Consider a shorter access token + refresh flow if the threat model warrants.
 
 ---
@@ -86,5 +103,15 @@ immediately (the server re-checks each request), but a leaked token stays valid.
 - "Deleted mid-analysis" guard (no wasted AI credit when a candidate is trashed
   while being analyzed).
 - Encrypted-at-rest provider tokens with safe key rotation.
-- Two-layer auth rate limiting (branch-safe + brute-force-safe).
+- Two-layer auth rate limiting (branch-safe + brute-force-safe), now also on the
+  applicant-portal auth routes.
 - Prompt-injection defense on résumé text; audit log for accountability.
+- SSRF-safe résumé fetch (only our own storage origin, size-capped).
+- Stored-XSS defense: all applicant/résumé-derived URLs are scheme-sanitized on
+  write AND on render (`javascript:`/`data:` blocked).
+- Résumé downloads via short-lived signed URLs (private bucket) — see P1 #4.
+- Upload content validation by magic bytes (a renamed executable is rejected).
+- `helmet` security headers; error responses no longer leak internals.
+- Session revocation on password change; boot-time `JWT_SECRET` strength check.
+- Public/lead upload abuse controls: email validation, per-field size caps,
+  per-email daily submission cap, single-use + expiring lead upload tokens.

@@ -1,6 +1,14 @@
 const { getClient } = require('../config/supabase');
+const { sanitizeUrl } = require('../utils/safeUrl');
 
 const TABLE = 'candidates';
+
+// Scrub project `link` fields (from AI extraction / manual entry) so a
+// javascript: URL can never be stored and later rendered into an <a href>.
+const sanitizeProjects = (projects) =>
+  (Array.isArray(projects) ? projects : []).map((p) =>
+    p && typeof p === 'object' && p.link !== undefined ? { ...p, link: sanitizeUrl(p.link) } : p
+  );
 // Dimension of the pgvector `embedding_vec` column / HNSW index. Pinned to the
 // current embedding model (nvidia/nv-embedqa-e5-v5 = 1024). Vectors of a
 // different size skip the pgvector fast-path (fall back to JS cosine).
@@ -53,12 +61,14 @@ const toRow = (data = {}) => {
   if (data.skills !== undefined) row.skills = data.skills || [];
   if (data.education !== undefined) row.education = data.education || [];
   if (data.experience !== undefined) row.experience = data.experience || [];
-  if (data.projects !== undefined) row.projects = data.projects || [];
+  if (data.projects !== undefined) row.projects = sanitizeProjects(data.projects);
   if (data.certifications !== undefined) row.certifications = data.certifications || [];
   if (data.languages !== undefined) row.languages = data.languages || [];
-  if (data.githubUrl !== undefined) row.github_url = data.githubUrl;
-  if (data.linkedInUrl !== undefined) row.linkedin_url = data.linkedInUrl;
-  if (data.portfolioUrl !== undefined) row.portfolio_url = data.portfolioUrl;
+  // URL fields are scheme-sanitized (block javascript:/data: etc.) so a résumé-
+  // or applicant-supplied link can never become a stored XSS vector.
+  if (data.githubUrl !== undefined) row.github_url = sanitizeUrl(data.githubUrl);
+  if (data.linkedInUrl !== undefined) row.linkedin_url = sanitizeUrl(data.linkedInUrl);
+  if (data.portfolioUrl !== undefined) row.portfolio_url = sanitizeUrl(data.portfolioUrl);
   if (data.notes !== undefined) row.notes = data.notes || [];
   if (data.interviews !== undefined) row.interviews = data.interviews || [];
   if (data.status !== undefined) row.status = data.status;
@@ -503,12 +513,12 @@ const CandidateRepo = {
       skills: parsed.skills || [],
       education: parsed.education || [],
       experience: parsed.experience || [],
-      projects: parsed.projects || [],
+      projects: sanitizeProjects(parsed.projects || []),
       certifications: parsed.certifications || [],
       languages: parsed.languages || [],
-      github_url: parsed.githubUrl || '',
-      linkedin_url: parsed.linkedInUrl || '',
-      portfolio_url: parsed.portfolioUrl || '',
+      github_url: sanitizeUrl(parsed.githubUrl || ''),
+      linkedin_url: sanitizeUrl(parsed.linkedInUrl || ''),
+      portfolio_url: sanitizeUrl(parsed.portfolioUrl || ''),
       ai_analysis: parsed.aiAnalysis || {},
       updated_at: new Date().toISOString(),
     };
@@ -627,7 +637,7 @@ const CandidateRepo = {
     if (!token) return null;
     const { data, error } = await getClient()
       .from(TABLE)
-      .select('id, name, job_id, resume_url, resume_submitted_at')
+      .select('id, name, job_id, resume_url, resume_submitted_at, resume_requested_at, created_at')
       .eq('resume_upload_token', String(token))
       .is('deleted_at', null)
       .maybeSingle();
@@ -636,6 +646,7 @@ const CandidateRepo = {
     return {
       _id: data.id, name: data.name, jobId: data.job_id,
       resumeUrl: data.resume_url, resumeSubmittedAt: data.resume_submitted_at || null,
+      requestedAt: data.resume_requested_at || null, createdAt: data.created_at || null,
     };
   },
 
@@ -683,6 +694,20 @@ const CandidateRepo = {
       .limit(1);
     if (error) throw error;
     return (data || []).length > 0;
+  },
+
+  // Count applications created by an email since `sinceIso` (rolling-window cap on
+  // public submissions, to bound AI-analysis cost from one email fanning roles).
+  async countRecentByEmail(email, sinceIso) {
+    const e = String(email || '').trim().toLowerCase();
+    if (!e) return 0;
+    const { count, error } = await getClient()
+      .from(TABLE)
+      .select('id', { count: 'exact', head: true })
+      .ilike('email', e)
+      .gte('created_at', sinceIso);
+    if (error) throw error;
+    return count || 0;
   },
 
   // Soft delete → moves to Trash (recoverable). The résumé file is KEPT so a

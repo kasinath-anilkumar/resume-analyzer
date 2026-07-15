@@ -1,9 +1,11 @@
 const bcrypt = require('bcryptjs');
 const { getClient } = require('../config/supabase');
+const { sanitizeUrl } = require('../utils/safeUrl');
 
 // Careers-portal accounts (candidate-facing). Mirrors userRepo but for the
 // SEPARATE `applicants` identity space — an applicant is never a recruiter.
 const TABLE = 'applicants';
+const BCRYPT_COST = 12; // work factor for password hashing
 
 // Client-safe shape — never includes the password hash or reset token.
 const toApi = (row) =>
@@ -17,6 +19,7 @@ const toApi = (row) =>
     bio: row.bio || '',
     resumeUrl: row.resume_url || '',
     location: row.location || '',
+    passwordChangedAt: row.password_changed_at || null, // used for session revocation
     createdAt: row.created_at,
   };
 
@@ -72,7 +75,7 @@ const ApplicantRepo = {
   },
 
   async create({ name, email, password, phone }) {
-    const salt = await bcrypt.genSalt(10);
+    const salt = await bcrypt.genSalt(BCRYPT_COST);
     const hashed = await bcrypt.hash(password, salt);
     const { data, error } = await getClient()
       .from(TABLE)
@@ -121,14 +124,17 @@ const ApplicantRepo = {
   },
 
   // Update self-service profile fields. Only defined keys are written.
+  // NOTE: resume_url is deliberately NOT settable here — it is server-set only
+  // (via updateResume from an actual file upload). Accepting an arbitrary URL
+  // here previously enabled SSRF (the apply flow fetches the stored URL).
+  // Link fields are scheme-sanitized so a javascript: URL can never be stored.
   async updateProfile(id, data = {}) {
     const row = { updated_at: new Date().toISOString() };
     if (data.name !== undefined) row.name = String(data.name).trim();
     if (data.phone !== undefined) row.phone = data.phone;
-    if (data.linkedinUrl !== undefined) row.linkedin_url = data.linkedinUrl;
-    if (data.portfolioUrl !== undefined) row.portfolio_url = data.portfolioUrl;
+    if (data.linkedinUrl !== undefined) row.linkedin_url = sanitizeUrl(data.linkedinUrl);
+    if (data.portfolioUrl !== undefined) row.portfolio_url = sanitizeUrl(data.portfolioUrl);
     if (data.bio !== undefined) row.bio = data.bio;
-    if (data.resumeUrl !== undefined) row.resume_url = data.resumeUrl;
     if (data.location !== undefined) row.location = data.location;
     const { data: updated, error } = await getClient()
       .from(TABLE).update(row).eq('id', id).select('*').maybeSingle();
@@ -168,15 +174,17 @@ const ApplicantRepo = {
   },
 
   async updatePassword(id, newPlainPassword) {
-    const salt = await bcrypt.genSalt(10);
+    const salt = await bcrypt.genSalt(BCRYPT_COST);
     const hashed = await bcrypt.hash(newPlainPassword, salt);
+    const now = new Date().toISOString();
     const { error } = await getClient()
       .from(TABLE)
       .update({
         password: hashed,
         [sha256Cols.hash]: null,
         [sha256Cols.exp]: null,
-        updated_at: new Date().toISOString(),
+        password_changed_at: now, // revoke sessions issued before now
+        updated_at: now,
       })
       .eq('id', id);
     if (error) throw error;

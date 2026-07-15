@@ -13,6 +13,7 @@ const PortalRegister = () => {
   const [form, setForm] = useState({ name: '', email: params.get('email') || '', phone: '', password: '', confirm: '' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [info, setInfo] = useState('');
 
   useEffect(() => { if (applicant) navigate('/portal/dashboard', { replace: true }); }, [applicant, navigate]);
 
@@ -21,13 +22,21 @@ const PortalRegister = () => {
   const submit = async (e) => {
     e.preventDefault();
     setError('');
+    setInfo('');
     if (form.password.length < 6) return setError('Password must be at least 6 characters.');
     if (form.password !== form.confirm) return setError('Passwords do not match.');
     if (form.phone && !isValidPhoneNumber(form.phone)) return setError('Please enter a valid phone number.');
     setBusy(true);
     const res = await register({ name: form.name.trim(), email: form.email.trim(), phone: form.phone.trim(), password: form.password });
     setBusy(false);
+    // Only a genuine new account carries a token → auto-login. If the email is
+    // already registered the API returns { exists:true } with no token, so we
+    // never log in; nudge the visitor to sign in instead.
     if (res.success) navigate('/portal/dashboard', { replace: true });
+    else if (res.exists) {
+      setInfo('If you already have an account, please sign in.');
+      setTimeout(() => navigate(`/login?email=${encodeURIComponent(form.email.trim())}`), 1800);
+    }
     else setError(res.message);
   };
 
@@ -104,6 +113,13 @@ const PortalRegister = () => {
             {error && (
               <div className="p-2.5 mb-3 bg-rose-500/10 border border-rose-500/20 text-rose-500 text-xs flex items-center gap-2 rounded-none tracking-wide">
                 <AlertCircle size={14} /> {error}
+              </div>
+            )}
+
+            {info && (
+              <div className="p-2.5 mb-3 bg-[#c5a880]/10 border border-[#c5a880]/30 text-[#8a6d3b] dark:text-[#c5a880] text-xs flex items-center gap-2 rounded-none tracking-wide">
+                <AlertCircle size={14} /> {info}{' '}
+                <Link to="/login" className="font-semibold underline">Sign in</Link>
               </div>
             )}
 

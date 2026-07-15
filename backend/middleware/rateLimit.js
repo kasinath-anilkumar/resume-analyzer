@@ -61,4 +61,15 @@ const applyBurstLimiter = rateLimit({
   handler: tooMany('You are submitting too quickly. Please wait a moment and try again.'),
 });
 
-module.exports = { authLimiter, accountLimiter, applyLimiter, applyBurstLimiter };
+// Light per-IP cap on unauthenticated public READ endpoints (careers jobs list,
+// lead-token lookup) so they can't be used as a cheap request-flood DoS.
+const publicReadLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  limit: 120,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  keyGenerator: ipPart,
+  handler: tooMany('Too many requests. Please slow down and try again shortly.'),
+});
+
+module.exports = { authLimiter, accountLimiter, applyLimiter, applyBurstLimiter, publicReadLimiter };

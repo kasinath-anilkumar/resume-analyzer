@@ -4,6 +4,15 @@ const WordExtractor = require('word-extractor');
 
 const IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'webp', 'bmp', 'tif', 'tiff', 'gif'];
 
+// DoS guards: a small upload can expand into a lot of work/memory (OCR renders +
+// recognizes each page; a résumé's text feeds a paid AI call). Bound both.
+const MAX_OCR_PAGES = 15;        // don't OCR an unbounded number of PDF pages
+const MAX_TEXT_CHARS = 200000;   // truncate extracted text (~50k tokens) before use
+const capText = (t) => {
+  const s = String(t || '');
+  return s.length > MAX_TEXT_CHARS ? s.slice(0, MAX_TEXT_CHARS) : s;
+};
+
 // --- OCR: one lazily-created Tesseract worker, reused across files ---
 // The worker is heavy (hundreds of MB). It's reused across a burst of files for
 // speed, then TERMINATED after a short idle so it doesn't sit resident and
@@ -122,8 +131,10 @@ const appendLinks = (text, ...urlSets) => {
   const merged = new Set();
   urlSets.forEach((set) => set && set.forEach((u) => merged.add(u)));
   urlsFromText(text).forEach((u) => merged.add(u));
-  if (merged.size === 0) return text;
-  return `${text}\n\n[DETECTED LINKS]\n${[...merged].join('\n')}`;
+  // capText bounds the extracted text (DoS/AI-cost guard) at the single point
+  // every parse path funnels through.
+  if (merged.size === 0) return capText(text);
+  return capText(`${text}\n\n[DETECTED LINKS]\n${[...merged].join('\n')}`);
 };
 
 class ParserService {
@@ -140,7 +151,9 @@ class ParserService {
           const shot = await parser.getScreenshot({ imageBuffer: true, scale: 2 });
           const pages = (shot && shot.pages) || [];
           let ocrText = '';
-          for (const page of pages) {
+          // Cap OCR'd pages — a huge scanned PDF shouldn't pin CPU/memory OCR-ing
+          // hundreds of pages (a résumé's signal is in the first few anyway).
+          for (const page of pages.slice(0, MAX_OCR_PAGES)) {
             if (page && page.data) {
               ocrText += (await ocrBuffer(Buffer.from(page.data))) + '\n';
             }

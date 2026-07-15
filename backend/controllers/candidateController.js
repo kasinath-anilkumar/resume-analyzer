@@ -343,6 +343,27 @@ exports.getCandidateById = async (req, res) => {
   }
 };
 
+// @desc    Mint a short-lived signed URL to view/download a candidate's résumé.
+//          Résumés live in a private bucket; this is the only way to reach one,
+//          and it's gated behind recruiter auth (the caller already passed
+//          `protect`). The URL expires quickly so it isn't a durable capability.
+// @route   GET /api/candidates/:id/resume-url
+// @access  Private
+exports.getResumeSignedUrl = async (req, res) => {
+  try {
+    const candidate = await CandidateRepo.findByIdApi(req.params.id);
+    if (!candidate || !candidate.resumeUrl) {
+      return res.status(404).json({ success: false, message: 'No résumé on file for this candidate.' });
+    }
+    const url = await StorageService.getSignedUrl(candidate.resumeUrl);
+    if (!url) return res.status(502).json({ success: false, message: 'Could not prepare the résumé link.' });
+    return res.json({ success: true, url });
+  } catch (error) {
+    console.error('Resume signed URL error:', error);
+    return res.status(500).json({ success: false, message: 'Could not load the résumé.' });
+  }
+};
+
 // @desc    Update candidate pipeline status (for Kanban drag & drop)
 // @route   PUT /api/candidates/:id/status
 // @access  Private (Admin, Recruiter)

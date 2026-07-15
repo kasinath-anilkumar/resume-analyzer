@@ -24,9 +24,18 @@ const toApi = (row, userId) => {
   return api;
 };
 
-// PostgREST filter matching notifications visible to a user.
-const visibleOr = (user) =>
-  `target_type.eq.all,and(target_type.eq.role,target_role.eq.${user.role}),and(target_type.eq.user,target_user.eq.${user.id})`;
+// PostgREST filter matching notifications visible to a user. role/id come from
+// the verified JWT (not free-form input), but we still validate them against the
+// known shapes before interpolating into the .or() filter, so a future code path
+// that let either be influenced can't break out of the filter syntax.
+const ROLES = new Set(['Admin', 'Recruiter', 'Hiring Manager']);
+const UUID_RE = /^[0-9a-fA-F-]{36}$/;
+const visibleOr = (user) => {
+  const clauses = ['target_type.eq.all'];
+  if (ROLES.has(user.role)) clauses.push(`and(target_type.eq.role,target_role.eq.${user.role})`);
+  if (UUID_RE.test(String(user.id || ''))) clauses.push(`and(target_type.eq.user,target_user.eq.${user.id})`);
+  return clauses.join(',');
+};
 
 const NotificationRepo = {
   toApi,

@@ -51,7 +51,12 @@ export const ApplicantAuthProvider = ({ children }) => {
   const register = async (payload) => {
     try {
       const res = await portalApi.post('/register', payload);
-      if (res.data.success) { persist(res.data); return { success: true }; }
+      // Anti-enumeration: an already-registered email returns 200 with
+      // { success:true, exists:true } and NO token — never a real session.
+      if (res.data.exists || !res.data.token) {
+        return { success: false, exists: true, message: 'If you already have an account, please sign in.' };
+      }
+      if (res.data.success && res.data.token) { persist(res.data); return { success: true }; }
       return { success: false, message: res.data.message };
     } catch (error) {
       return asError(error, 'Could not create your account.');

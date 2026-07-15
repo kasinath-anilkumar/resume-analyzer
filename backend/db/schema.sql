@@ -33,6 +33,9 @@ create table if not exists users (
 -- For installs created before the reset columns existed:
 alter table users add column if not exists reset_token_hash text;
 alter table users add column if not exists reset_token_expires timestamptz;
+-- Session revocation: tokens minted before this timestamp are rejected, so a
+-- password change/reset logs out other sessions.
+alter table users add column if not exists password_changed_at timestamptz;
 
 -- ---------------------------------------------------------------------------
 --  applicants  (candidate-facing careers portal accounts — SEPARATE from the
@@ -57,6 +60,8 @@ alter table applicants add column if not exists portfolio_url text;
 alter table applicants add column if not exists bio          text;
 alter table applicants add column if not exists resume_url   text;  -- reusable "primary résumé"
 alter table applicants add column if not exists location     text;  -- current location
+-- Session revocation (see users.password_changed_at).
+alter table applicants add column if not exists password_changed_at timestamptz;
 
 -- ---------------------------------------------------------------------------
 --  jobs

@@ -1,9 +1,14 @@
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
+const bcrypt = require('bcryptjs');
 const UserRepo = require('../models/userRepo');
 const ApplicantRepo = require('../models/applicantRepo');
 const EmailService = require('../services/emailService');
 const AuditRepo = require('../models/auditRepo');
+
+// A valid bcrypt hash to compare against when an email doesn't exist, so login
+// timing doesn't reveal whether the account is found (no enumeration oracle).
+const DUMMY_HASH = bcrypt.hashSync('timing-equalizer-not-a-real-password', 12);
 
 // Generate JWT token
 const generateToken = (id) => {
@@ -38,7 +43,8 @@ exports.loginUser = async (req, res) => {
     const { email, password } = req.body;
 
     const row = await UserRepo.findRawByEmail(email);
-    if (row && (await UserRepo.matchPassword(password, row))) {
+    const ok = await UserRepo.matchPassword(password, row || { password: DUMMY_HASH });
+    if (row && ok) {
       const user = UserRepo.toApi(row);
       return res.json({
         success: true,
@@ -72,9 +78,11 @@ exports.signin = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Email and password are required.' });
     }
 
-    // 1) Staff (recruiter) — higher privilege, checked first.
+    // 1) Staff (recruiter) — higher privilege, checked first. Always run the
+    //    compare (dummy hash when missing) so timing doesn't leak existence.
     const staff = await UserRepo.findRawByEmail(email);
-    if (staff && (await UserRepo.matchPassword(password, staff))) {
+    const staffOk = await UserRepo.matchPassword(password, staff || { password: DUMMY_HASH });
+    if (staff && staffOk) {
       const u = UserRepo.toApi(staff);
       return res.json({
         success: true, type: 'staff',
@@ -85,7 +93,8 @@ exports.signin = async (req, res) => {
 
     // 2) Applicant (careers portal) — issued an applicant-typed token only.
     const applicant = await ApplicantRepo.findRawByEmail(email);
-    if (applicant && (await ApplicantRepo.matchPassword(password, applicant))) {
+    const applicantOk = await ApplicantRepo.matchPassword(password, applicant || { password: DUMMY_HASH });
+    if (applicant && applicantOk) {
       const a = ApplicantRepo.toApi(applicant);
       return res.json({
         success: true, type: 'applicant',
