@@ -400,6 +400,11 @@ const CandidateDetails = () => {
                   <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-slate-500/10 text-slate-500 border border-slate-500/20 uppercase tracking-wide">Awaiting résumé</span>
                 )
               )}
+              {(candidate.aiAnalysis?.analyzedFrom === 'form' || candidate.aiAnalysis?.manualEntry) && (
+                <span title="This candidate has no résumé — details were entered manually and screened from the form" className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-violet-500/10 text-violet-600 dark:text-violet-400 border border-violet-500/20 uppercase tracking-wide">
+                  Analyzed from form
+                </span>
+              )}
               {candidate.consentAt && (
                 <span title={`Consent given: ${new Date(candidate.consentAt).toLocaleString()}`} className="text-[9px] text-slate-400">
                   ✓ Consented {new Date(candidate.consentAt).toLocaleDateString()}

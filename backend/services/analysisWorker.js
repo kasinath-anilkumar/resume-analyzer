@@ -26,6 +26,38 @@ const resolveAiConfig = async () => {
   }
 };
 
+// Reconstruct a résumé-like text profile from a manual entry's stored structured
+// fields, so the AI screener can produce a full report without a résumé document.
+function buildManualProfileText(row) {
+  const lines = [];
+  if (row.name) lines.push(`Name: ${row.name}`);
+  if (row.current_location) lines.push(`Location: ${row.current_location}`);
+  const edu = Array.isArray(row.education) ? row.education : [];
+  if (edu.length) {
+    lines.push('\nEDUCATION');
+    edu.forEach((e) => lines.push(`- ${[e.degree, e.school, e.endYear].filter(Boolean).join(', ')}`));
+  }
+  const exp = Array.isArray(row.experience) ? row.experience : [];
+  if (exp.length) {
+    lines.push('\nEXPERIENCE');
+    exp.forEach((e) => {
+      lines.push(`- ${[e.title, e.company, e.endDate].filter(Boolean).join(' | ')}`);
+      if (e.description) lines.push(`  ${e.description}`);
+    });
+  }
+  const proj = Array.isArray(row.projects) ? row.projects : [];
+  if (proj.length) {
+    lines.push('\nPROJECTS');
+    proj.forEach((p) => {
+      lines.push(`- ${p.title || 'Project'}`);
+      if (p.description) lines.push(`  ${p.description}`);
+    });
+  }
+  const skills = Array.isArray(row.skills) ? row.skills : [];
+  if (skills.length) lines.push(`\nSKILLS: ${skills.join(', ')}`);
+  return lines.join('\n').trim();
+}
+
 async function processOne(row) {
   const id = row.id;
   try {
