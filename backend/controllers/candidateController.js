@@ -10,6 +10,7 @@ const AuditRepo = require('../models/auditRepo');
 const ApplicantRepo = require('../models/applicantRepo');
 const CandidateMatcher = require('../services/candidateMatcher');
 const EmbeddingService = require('../services/embeddingService');
+const { getOrCompute } = require('../utils/ttlCache');
 
 // How strongly embedding similarity blends into the deterministic fit score when
 // semantic matching is available (0 = keyword-only, 1 = embedding-only).
@@ -708,8 +709,12 @@ exports.deletePerson = async (req, res) => {
 // @desc    Get dashboard metrics & chart data
 // @route   GET /api/candidates/dashboard/stats
 // @access  Private
-exports.getDashboardStats = async (req, res) => {
-  try {
+// Cached ~30s: the dashboard is the landing page and this aggregates the whole
+// candidate table, so at 50 branches every concurrent load would otherwise be its
+// own full scan. The cache collapses them to one scan per window.
+const DASHBOARD_TTL_MS = 30 * 1000;
+
+async function computeDashboardData() {
     const jobs = await JobRepo.list({}); // excludes Archived
     const candidates = await CandidateRepo.allForStats();
 
@@ -793,26 +798,29 @@ exports.getDashboardStats = async (req, res) => {
       });
     }
 
-    return res.json({
-      success: true,
-      data: {
-        kpis: {
-          totalJobs,
-          activeJobs,
-          totalCandidates,
-          shortlistedCount,
-          shortlistedReached,
-          rejectedCount,
-          hiredCount,
-          interviewCount,
-        },
-        funnelData,
-        applicationsPerJob,
-        statusDistribution,
-        skillDistribution,
-        monthlyActivity,
+    return {
+      kpis: {
+        totalJobs,
+        activeJobs,
+        totalCandidates,
+        shortlistedCount,
+        shortlistedReached,
+        rejectedCount,
+        hiredCount,
+        interviewCount,
       },
-    });
+      funnelData,
+      applicationsPerJob,
+      statusDistribution,
+      skillDistribution,
+      monthlyActivity,
+    };
+}
+
+exports.getDashboardStats = async (req, res) => {
+  try {
+    const data = await getOrCompute('dashboard-stats', DASHBOARD_TTL_MS, computeDashboardData);
+    return res.json({ success: true, data });
   } catch (error) {
     console.error('Stats aggregation error:', error);
     return res.status(500).json({ success: false, message: 'Server error aggregating stats' });
