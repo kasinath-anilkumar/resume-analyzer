@@ -47,7 +47,9 @@ const TIMELINE = ['Application Received', 'Under Review', 'Interview', 'Decision
 // but withdrawnAt is what the portal keys off — so the applicant sees "Withdrawn"
 // rather than "Not Selected".
 const isWithdrawn = (c) => Boolean(c && c.withdrawnAt);
-const canWithdraw = (c) => !isWithdrawn(c) && !['Hired', 'Rejected'].includes(c && c.status);
+// The upload wasn't a résumé/CV — the application was auto-rejected without review.
+const isNotResume = (c) => Boolean(c && c.analysisStatus === 'rejected');
+const canWithdraw = (c) => !isWithdrawn(c) && !isNotResume(c) && !['Hired', 'Rejected'].includes(c && c.status);
 
 const safeJob = (job) => {
   if (!job || typeof job !== 'object') return { title: 'A role' };
@@ -77,19 +79,24 @@ const safeInterviews = (interviews) =>
 const toApplicantView = (c) => {
   if (!c) return null;
   const withdrawn = isWithdrawn(c);
+  const notResume = isNotResume(c);
   const { index, outcome } = stageOf(c.status);
   const interviews = safeInterviews(c.interviews);
+  const status = notResume ? 'Not Accepted' : withdrawn ? 'Withdrawn' : publicStatus(c.status);
   return {
     _id: c._id,
     job: safeJob(c.jobId),
     appliedAt: c.createdAt,
-    status: withdrawn ? 'Withdrawn' : publicStatus(c.status),
+    status,
     stageIndex: index,
-    outcome: withdrawn ? 'negative' : outcome,
+    outcome: notResume || withdrawn ? 'negative' : outcome,
     withdrawn,
     withdrawnAt: withdrawn ? c.withdrawnAt : null,
+    // Applicant-facing rejection reason when the upload wasn't a valid résumé.
+    notAccepted: notResume,
+    notAcceptedReason: notResume ? (c.analysisError || 'The document you uploaded was not a valid résumé/CV. Please re-apply with your résumé.') : null,
     canWithdraw: canWithdraw(c),
-    nextInterviewAt: withdrawn || !interviews.length ? null : interviews[interviews.length - 1].scheduledAt,
+    nextInterviewAt: withdrawn || notResume || !interviews.length ? null : interviews[interviews.length - 1].scheduledAt,
   };
 };
 

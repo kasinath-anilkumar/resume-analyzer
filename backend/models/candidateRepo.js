@@ -361,6 +361,23 @@ const CandidateRepo = {
     return true;
   },
 
+  // Reject an upload that is NOT a résumé/CV (e.g. an ID card) — no AI is spent.
+  // The reason is applicant-safe (surfaced in the portal). For an applicant's own
+  // application (source 'Application') the pipeline status is also set to
+  // 'Rejected' so it leaves the active list; recruiter uploads keep their status
+  // and just show the rejected-analysis reason so the recruiter can re-upload.
+  async rejectAsNonResume(id, reason, { rejectApplication = false } = {}) {
+    const patch = {
+      analysis_status: 'rejected',
+      analysis_error: String(reason || 'The uploaded file is not a valid résumé/CV.'),
+      updated_at: new Date().toISOString(),
+    };
+    if (rejectApplication) patch.status = 'Rejected';
+    const { error } = await getClient().from(TABLE).update(patch).eq('id', id).is('deleted_at', null);
+    if (error) throw error;
+    return true;
+  },
+
   async failAnalysis(id, message) {
     const { error } = await getClient()
       .from(TABLE)

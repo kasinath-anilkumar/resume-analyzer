@@ -7,6 +7,7 @@ const StorageService = require('./storageService');
 const EmbeddingService = require('./embeddingService');
 const MetaLeads = require('./metaLeadsService');
 const LeadIngestion = require('./leadIngestion');
+const ResumeValidator = require('./resumeValidator');
 
 // In-process background worker that drains the résumé-analysis queue. Uploads
 // enqueue a candidate with analysis_status='pending' and return instantly; this
@@ -99,6 +100,16 @@ async function processOne(row) {
       const text = await ParserService.extractText(file.buffer, file.mimeType, file.originalName);
       if (!text || !text.replace(/\s/g, '').length) {
         return CandidateRepo.failAnalysis(id, 'Could not read any text from the résumé.');
+      }
+
+      // GATE: is this actually a résumé/CV? Reject non-résumés (ID cards, random
+      // docs) WITHOUT spending an AI call. The applicant sees the reason in their
+      // portal; recruiters see it flagged.
+      const check = ResumeValidator.validate(text);
+      if (!check.ok) {
+        await CandidateRepo.rejectAsNonResume(id, check.reason, { rejectApplication: row.source === 'Application' });
+        console.log('[worker] rejected non-résumé upload', id, '-', check.category);
+        return;
       }
 
       // A recruiter may have trashed this candidate during the (slow) download/OCR

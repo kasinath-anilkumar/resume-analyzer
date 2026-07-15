@@ -79,6 +79,19 @@ const PortalApplicationDetail = () => {
               <span className={`text-[10px] font-bold px-3 py-1.5 rounded-none border uppercase tracking-wider ${statusPill(app.outcome)}`}>{app.status}</span>
             </div>
 
+            {/* Not accepted — the upload wasn't a valid résumé/CV. */}
+            {app.notAccepted && (
+              <div className="mt-6 flex items-start gap-2.5 p-4 border border-rose-400/30 bg-rose-500/5">
+                <AlertCircle size={16} className="text-rose-500 mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-[11px] font-bold uppercase tracking-widest text-rose-500">Application not accepted</p>
+                  <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-1 tracking-wide leading-relaxed">
+                    {app.notAcceptedReason} You're welcome to <Link to="/careers" className="text-[#c5a880] underline">apply again</Link> with your résumé.
+                  </p>
+                </div>
+              </div>
+            )}
+
             {/* Timeline Progress Pipeline */}
             <div className="mt-8 pt-6 border-t luxury-border-thin">
               <span className="text-[9px] font-bold text-slate-400 uppercase tracking-[0.25em] block mb-6">Application Progress</span>

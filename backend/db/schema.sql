@@ -145,6 +145,12 @@ alter table candidates add column if not exists analysis_status text not null de
   check (analysis_status in ('pending','processing','completed','failed'));
 alter table candidates add column if not exists analysis_error text;
 create index if not exists candidates_analysis_status_idx on candidates(analysis_status);
+-- Allow 'rejected' — the upload was readable but is NOT a résumé/CV (e.g. an ID
+-- card), so it was rejected WITHOUT spending an AI analysis. The reason is stored
+-- in analysis_error. (Recreate the check constraint to add the new value.)
+alter table candidates drop constraint if exists candidates_analysis_status_check;
+alter table candidates add constraint candidates_analysis_status_check
+  check (analysis_status in ('pending','processing','completed','failed','rejected'));
 -- Screening quiz result (auto-scored MCQ): { score, correct, totalScored, answers[], timeSpentSeconds, tabSwitches }
 alter table candidates add column if not exists quiz_result jsonb not null default '{}';
 -- GDPR consent timestamp (set when an applicant submits via the public portal)

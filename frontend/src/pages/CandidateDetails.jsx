@@ -500,6 +500,12 @@ const CandidateDetails = () => {
           <span>AI analysis could not be completed{candidate.analysisError ? `: ${candidate.analysisError}` : '.'} {canManage && 'You can retry with “Re-run AI Analysis”.'}</span>
         </div>
       )}
+      {candidate.analysisStatus === 'rejected' && (
+        <div className="p-3 text-xs rounded-xl border bg-amber-500/10 border-amber-500/20 text-amber-700 dark:text-amber-400 flex items-start gap-2">
+          <AlertTriangle size={14} className="mt-0.5 flex-shrink-0" />
+          <span><strong>Rejected — not a résumé.</strong> {candidate.analysisError || 'The uploaded file was not a valid résumé/CV.'} No AI analysis was run. {canManage && 'If this is wrong, re-upload the correct file and re-run analysis.'}</span>
+        </div>
+      )}
 
       {/* Action feedback */}
       {actionMsg.text && (

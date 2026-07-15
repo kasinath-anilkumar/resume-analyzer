@@ -70,7 +70,7 @@ test('toApplicantView is a lean list card', () => {
   const view = toApplicantView(loadedCandidate());
   assert.deepEqual(
     Object.keys(view).sort(),
-    ['_id', 'appliedAt', 'canWithdraw', 'job', 'nextInterviewAt', 'outcome', 'stageIndex', 'status', 'withdrawn', 'withdrawnAt'].sort()
+    ['_id', 'appliedAt', 'canWithdraw', 'job', 'nextInterviewAt', 'notAccepted', 'notAcceptedReason', 'outcome', 'stageIndex', 'status', 'withdrawn', 'withdrawnAt'].sort()
   );
   assert.equal(view.nextInterviewAt, '2026-06-20T10:00:00Z'); // latest scheduled
   assert.equal(view.withdrawn, false);
@@ -84,6 +84,20 @@ test('canWithdraw only for still-open, non-withdrawn applications', () => {
   assert.equal(canWithdraw({ status: 'Hired' }), false);
   assert.equal(canWithdraw({ status: 'Rejected' }), false);
   assert.equal(canWithdraw({ status: 'Interview', withdrawnAt: '2026-06-15T00:00:00Z' }), false);
+});
+
+test('a non-résumé upload shows as Not Accepted with the reason', () => {
+  const c = loadedCandidate();
+  c.analysisStatus = 'rejected';
+  c.analysisError = 'The uploaded file looks like an identity or official document, not a résumé/CV.';
+  c.status = 'Rejected';
+  const view = toApplicantView(c);
+  assert.equal(view.status, 'Not Accepted');
+  assert.equal(view.notAccepted, true);
+  assert.match(view.notAcceptedReason, /identity or official document/i);
+  assert.equal(view.outcome, 'negative');
+  assert.equal(view.canWithdraw, false);
+  assert.equal(view.nextInterviewAt, null);
 });
 
 test('a withdrawn application shows as Withdrawn and hides interviews', () => {

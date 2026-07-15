@@ -556,6 +556,10 @@ const Candidates = () => {
                               <span title={cand.analysisError} className="inline-flex items-center gap-0.5 text-[8.5px] font-bold px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-600 border border-rose-500/20">
                                 <AlertTriangle size={9} /> Analysis failed
                               </span>
+                            ) : cand.analysisStatus === 'rejected' ? (
+                              <span title={cand.analysisError} className="inline-flex items-center gap-0.5 text-[8.5px] font-bold px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20">
+                                <AlertTriangle size={9} /> Not a résumé
+                              </span>
                             ) : cand.aiAnalysis?.screeningVerdict && (
                               <span className={`text-[8.5px] font-bold px-1.5 py-0.5 rounded ${verdictBadge(cand.aiAnalysis.screeningVerdict)}`}>
                                 {cand.aiAnalysis.screeningVerdict}
