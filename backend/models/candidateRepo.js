@@ -1,6 +1,10 @@
 const { getClient } = require('../config/supabase');
 
 const TABLE = 'candidates';
+// Dimension of the pgvector `embedding_vec` column / HNSW index. Pinned to the
+// current embedding model (nvidia/nv-embedqa-e5-v5 = 1024). Vectors of a
+// different size skip the pgvector fast-path (fall back to JS cosine).
+const EMBEDDING_DIM = 1024;
 
 const toApi = (row) =>
   row && {
@@ -772,14 +776,49 @@ const CandidateRepo = {
 
   // --- Semantic matching embeddings ----------------------------------------
   // Persist a candidate's embedding (JSON float array) + the model tag that
-  // produced it. Best-effort — callers swallow errors so embedding never blocks.
+  // produced it. Also mirrors it into the pgvector `embedding_vec` column (as the
+  // pgvector text form) when it matches the indexed dimension, so nearest-
+  // neighbour search stays in Postgres. Best-effort — callers swallow errors.
   async setEmbedding(id, vector, modelTag) {
+    const vec = Array.isArray(vector) && vector.length === EMBEDDING_DIM ? `[${vector.join(',')}]` : null;
     const { error } = await getClient()
       .from(TABLE)
-      .update({ embedding: vector || null, embedding_model: modelTag || null })
+      .update({ embedding: vector || null, embedding_model: modelTag || null, embedding_vec: vec })
       .eq('id', id);
     if (error) throw error;
     return true;
+  },
+
+  // pgvector nearest-neighbour search: top-K analysed candidates most similar to
+  // a job's embedding, WITHOUT loading the whole pool. Returns
+  // [{ candidate (API-shaped), similarity 0..1 }]. jobVector is a float array.
+  async matchByEmbedding(jobVector, limit = 250) {
+    if (!Array.isArray(jobVector) || jobVector.length !== EMBEDDING_DIM) return [];
+    const { data, error } = await getClient().rpc('match_candidates', {
+      p_job_embedding: `[${jobVector.join(',')}]`,
+      p_limit: limit,
+    });
+    if (error) throw error;
+    return (data || []).map((r) => ({ candidate: toApi(r.candidate), similarity: r.similarity }));
+  },
+
+  // All non-deleted candidates for one job (its own applicants). Small, bounded.
+  async listForJob(jobId) {
+    if (!jobId) return [];
+    const { data, error } = await getClient()
+      .from(TABLE).select('*').eq('job_id', jobId).is('deleted_at', null);
+    if (error) throw error;
+    return (data || []).map(toApi);
+  },
+
+  // Replace each candidate's raw jobId with its populated { _id, title, department }
+  // (batched) — mirrors what listApi does, for the bounded pgvector path.
+  async populateAppliedJobs(rows) {
+    const jobs = await jobLookup((rows || []).map((c) => c.jobId), ['title', 'department']);
+    return (rows || []).map((c) => ({
+      ...c,
+      jobId: jobs[String(c.jobId)] || { _id: c.jobId, title: 'Unknown', department: '' },
+    }));
   },
 
   // Fetch embeddings for a set of candidate ids → { [id]: { embedding, embeddingModel } }.

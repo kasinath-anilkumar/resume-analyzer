@@ -167,6 +167,18 @@ alter table candidates alter column resume_url drop not null;
 -- analysis worker after a résumé is parsed, and by the backfill endpoint.
 alter table candidates add column if not exists embedding jsonb;
 alter table candidates add column if not exists embedding_model text;
+-- pgvector column mirroring `embedding` for FAST server-side nearest-neighbour
+-- search (the match_candidates RPC below). Dimension is pinned to the current
+-- embedding model (nvidia/nv-embedqa-e5-v5 = 1024). The provider-agnostic jsonb
+-- `embedding` stays the source of truth; this is a derived index. Switching to a
+-- different-dimension provider requires recreating this column at the new size.
+create extension if not exists vector;
+alter table candidates add column if not exists embedding_vec vector(1024);
+-- One-time backfill from the jsonb embeddings (idempotent — only fills nulls).
+update candidates set embedding_vec = (embedding::text)::vector
+  where embedding is not null and embedding_vec is null and jsonb_array_length(embedding) = 1024;
+create index if not exists candidates_embedding_vec_hnsw
+  on candidates using hnsw (embedding_vec vector_cosine_ops);
 -- Applicant self-service withdrawal (careers portal). Non-null = the candidate
 -- pulled out; the row's status is also set to 'Rejected' so it leaves the active
 -- recruiter pipeline, while this timestamp preserves that it was self-withdrawn
@@ -304,4 +316,28 @@ language sql stable as $$
   order by coalesce(nullif(f.ai_analysis->>'overallScore','')::numeric, 0) desc, f.created_at desc
   limit greatest(coalesce(p_limit, 25), 1)
   offset greatest(coalesce(p_offset, 0), 0)
+$$;
+
+-- ---------------------------------------------------------------------------
+--  match_candidates — pgvector nearest-neighbour search for cross-role
+--  recommendations. Returns the top-K analysed candidates most semantically
+--  similar to a job's embedding, using the HNSW index — so the recommendation
+--  engine never loads the whole pool + every embedding into Node. The heavy
+--  `embedding`/`embedding_vec` columns are stripped from the payload (the cosine
+--  `similarity` is returned instead). p_job_embedding is the pgvector text
+--  form, e.g. '[0.1,0.2,...]'.
+-- ---------------------------------------------------------------------------
+create or replace function match_candidates(
+  p_job_embedding text,
+  p_limit integer default 250
+) returns table (candidate jsonb, similarity double precision)
+language sql stable as $$
+  select (to_jsonb(c) - 'embedding' - 'embedding_vec') as candidate,
+         1 - (c.embedding_vec <=> (p_job_embedding)::vector) as similarity
+  from candidates c
+  where c.deleted_at is null
+    and c.embedding_vec is not null
+    and c.analysis_status = 'completed'
+  order by c.embedding_vec <=> (p_job_embedding)::vector
+  limit greatest(coalesce(p_limit, 250), 1)
 $$;

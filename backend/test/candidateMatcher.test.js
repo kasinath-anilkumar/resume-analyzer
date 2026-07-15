@@ -151,6 +151,20 @@ test('cosineSimilarity: identical vectors = 1, orthogonal = 0, guards bad input'
   assert.equal(cosineSimilarity(null, [1]), null);
 });
 
+test('semanticScore: uses a precomputed similarity (pgvector) when present', () => {
+  // No embeddings needed — the similarity comes straight from the DB query.
+  const cand = { semanticSim: 0.82 };
+  const s = semanticScore(cand, { embedding: [1, 0, 0] });
+  assert.equal(s.sim, 0.82);
+  assert.equal(s.score, 82);
+  // hybridScore should blend it upside-only just like the vector path.
+  const job = { title: 'Sales Lead', requiredSkills: ['Sales'], preferredSkills: [] };
+  const c2 = { skills: ['Sales'], experience: [], projects: [], aiAnalysis: {}, semanticSim: 0.9 };
+  const h = hybridScore(c2, job, 0.4);
+  assert.equal(h.semantic, true);
+  assert.equal(h.semanticScore, 90);
+});
+
 test('semanticScore: needs both embeddings and a matching model tag', () => {
   const cand = { embedding: [1, 0, 0], embeddingModel: 'nvidia:x' };
   const job = { embedding: [1, 0, 0], embeddingModel: 'nvidia:x' };

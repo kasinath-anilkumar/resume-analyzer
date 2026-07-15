@@ -184,17 +184,17 @@ exports.getRecommendations = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Job not found' });
     }
 
-    // The full pool, each with its applied job populated ({_id,title,department}).
-    const pool = await CandidateRepo.listApi({});
     const minScore = Number.isFinite(+min) ? +min : 40;
-
-    // --- Semantic layer (optional, self-disabling) --------------------------
-    // Attach stored candidate embeddings + resolve the job's embedding (embedding
-    // it on-demand and caching it if this role has never been embedded). If the
-    // provider is unavailable or anything fails, semanticWeight stays 0 and the
-    // ranking is the exact keyword-only behaviour as before — zero regression.
+    let pool = null;
     let semanticWeight = 0;
     let semanticActive = false;
+
+    // --- Semantic path (pgvector, BOUNDED) ----------------------------------
+    // Resolve the job embedding (embedding it on-demand + caching). Then, instead
+    // of loading the WHOLE pool + every embedding into Node, ask Postgres (via the
+    // HNSW index) for only the top-K candidates nearest to the job — UNION this
+    // job's own applicants (who must always appear). Self-disabling: any failure
+    // or an unconfigured provider falls back to the deterministic full-pool path.
     try {
       if (await EmbeddingService.isAvailable()) {
         let jobEmb = await JobRepo.getEmbedding(job._id);
@@ -205,21 +205,33 @@ exports.getRecommendations = async (req, res) => {
             jobEmb = { embedding: fresh.vector, embeddingModel: fresh.model };
           }
         }
-        if (jobEmb) {
+        if (jobEmb && Array.isArray(jobEmb.embedding)) {
           job.embedding = jobEmb.embedding;
           job.embeddingModel = jobEmb.embeddingModel;
-          const embMap = await CandidateRepo.embeddingsByIds(pool.map((c) => c._id));
-          pool.forEach((c) => {
-            const e = embMap[c._id];
-            if (e) { c.embedding = e.embedding; c.embeddingModel = e.embeddingModel; }
+          const matched = await CandidateRepo.matchByEmbedding(jobEmb.embedding, 250); // top-K nearest
+          const applicants = await CandidateRepo.listForJob(job._id);                  // always include
+          const byId = new Map();
+          matched.forEach(({ candidate, similarity }) => {
+            candidate.semanticSim = similarity; // pgvector-computed cosine (skip JS recompute)
+            byId.set(candidate._id, candidate);
           });
+          applicants.forEach((c) => { if (!byId.has(c._id)) byId.set(c._id, c); });
+          pool = await CandidateRepo.populateAppliedJobs([...byId.values()]);
           semanticWeight = SEMANTIC_WEIGHT;
           semanticActive = true;
         }
       }
     } catch (semErr) {
-      console.error('Semantic layer skipped:', semErr.message);
+      console.error('pgvector recommendation path skipped:', semErr.message);
+      pool = null;
       semanticWeight = 0;
+      semanticActive = false;
+    }
+
+    // Fallback: deterministic keyword ranking over the full pool (semantic off or
+    // pgvector unavailable). listApi already populates each candidate's applied job.
+    if (!pool) {
+      pool = await CandidateRepo.listApi({});
     }
 
     const ranked = CandidateMatcher.rankPool(pool, job, { min: minScore, semanticWeight });

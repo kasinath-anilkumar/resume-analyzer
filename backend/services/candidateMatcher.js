@@ -216,6 +216,12 @@ const cosineSimilarity = (a, b) => {
  * [-1,1]; real résumé↔job pairs land ~[0,1], so we map [0,1]→[0,100] and clamp.
  */
 const semanticScore = (candidate, job) => {
+  // Fast path: a precomputed cosine similarity (e.g. from a pgvector query) so we
+  // don't ship every embedding into Node just to recompute it here.
+  if (candidate && typeof candidate.semanticSim === 'number') {
+    const sim = candidate.semanticSim;
+    return { sim, score: Math.max(0, Math.min(100, Math.round(sim * 100))) };
+  }
   const cv = candidate && candidate.embedding;
   const jv = job && job.embedding;
   if (!cv || !jv) return null;
