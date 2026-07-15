@@ -5,6 +5,8 @@ const ParserService = require('./parserService');
 const AIService = require('./aiService');
 const StorageService = require('./storageService');
 const EmbeddingService = require('./embeddingService');
+const MetaLeads = require('./metaLeadsService');
+const LeadIngestion = require('./leadIngestion');
 
 // In-process background worker that drains the résumé-analysis queue. Uploads
 // enqueue a candidate with analysis_status='pending' and return instantly; this
@@ -124,6 +126,31 @@ async function runRetention() {
   }
 }
 
+// --- Meta Lead Ads polling ---------------------------------------------------
+// Periodically pull new leads from mapped Meta lead forms and ingest them as
+// candidates (+ fire the résumé-request WhatsApp message). No-op until an admin
+// configures the Meta token/page in Settings. Runs per-instance; if hosting ever
+// scales past one instance, add a DB claim/lock to avoid double-polling.
+const LEAD_POLL_INTERVAL_MS = 5 * 60 * 1000; // every 5 minutes
+let leadTimer = null;
+
+async function runLeadPolling() {
+  try {
+    const s = await SettingsRepo.get();
+    if (MetaLeads.isConfigured(s)) {
+      const summary = await LeadIngestion.syncAll(s);
+      if (summary.created) console.log(`[leads] ingested ${summary.created} new lead(s), ${summary.whatsapp} WhatsApp request(s)`);
+      if (summary.errors && summary.errors.length) console.error('[leads] sync errors:', summary.errors.join(' | '));
+    }
+  } catch (err) {
+    console.error('[leads] polling failed:', err.message);
+  } finally {
+    if (leadTimer) clearTimeout(leadTimer);
+    leadTimer = setTimeout(runLeadPolling, LEAD_POLL_INTERVAL_MS);
+    if (leadTimer.unref) leadTimer.unref();
+  }
+}
+
 async function start() {
   try {
     const n = await CandidateRepo.resetStaleProcessing(10);
@@ -136,6 +163,9 @@ async function start() {
   // Kick off the retention sweep shortly after boot, then every 6h.
   const rt = setTimeout(runRetention, 30000);
   if (rt.unref) rt.unref();
+  // Kick off Meta lead polling shortly after boot, then every 5 min.
+  const lt = setTimeout(runLeadPolling, 45000);
+  if (lt.unref) lt.unref();
 }
 
-module.exports = { start, tick, runRetention };
+module.exports = { start, tick, runRetention, runLeadPolling };

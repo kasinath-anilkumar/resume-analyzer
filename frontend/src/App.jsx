@@ -9,6 +9,7 @@ import Login from './pages/Login';
 import ResetPassword from './pages/ResetPassword';
 import Careers from './pages/Careers';
 import CareerApply from './pages/CareerApply';
+import LeadResumeUpload from './pages/LeadResumeUpload';
 import { ApplicantAuthProvider, useApplicantAuth } from './context/ApplicantAuthContext';
 import PortalRegister from './pages/portal/PortalRegister';
 import PortalReset from './pages/portal/PortalReset';
@@ -81,6 +82,8 @@ function App() {
             <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="/careers" element={<Careers />} />
             <Route path="/careers/:id" element={<CareerApply />} />
+            {/* Meta-lead résumé upload (personal WhatsApp link) */}
+            <Route path="/u/:token" element={<LeadResumeUpload />} />
 
             {/* Candidate-facing careers portal */}
             <Route path="/portal/login" element={<Navigate to="/login" replace />} />

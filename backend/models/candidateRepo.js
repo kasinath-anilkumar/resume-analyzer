@@ -30,6 +30,9 @@ const toApi = (row) =>
     quizResult: row.quiz_result && typeof row.quiz_result === 'object' ? row.quiz_result : {},
     consentAt: row.consent_at || null,
     withdrawnAt: row.withdrawn_at || null,
+    leadMetaId: row.lead_meta_id || null,
+    resumeRequestedAt: row.resume_requested_at || null,
+    resumeSubmittedAt: row.resume_submitted_at || null,
     deletedAt: row.deleted_at || null,
     jobId: row.job_id, // replaced with a populated object where noted
     aiAnalysis: row.ai_analysis || {},
@@ -66,6 +69,11 @@ const toRow = (data = {}) => {
   if (data.applicantId !== undefined) row.applicant_id = data.applicantId;
   if (data.jobId !== undefined) row.job_id = data.jobId;
   if (data.aiAnalysis !== undefined) row.ai_analysis = data.aiAnalysis || {};
+  // Meta Lead Ads ingestion fields.
+  if (data.leadMetaId !== undefined) row.lead_meta_id = data.leadMetaId;
+  if (data.resumeUploadToken !== undefined) row.resume_upload_token = data.resumeUploadToken;
+  if (data.resumeRequestedAt !== undefined) row.resume_requested_at = data.resumeRequestedAt;
+  if (data.resumeSubmittedAt !== undefined) row.resume_submitted_at = data.resumeSubmittedAt;
   return row;
 };
 
@@ -454,6 +462,68 @@ const CandidateRepo = {
       .maybeSingle();
     if (error) throw error;
     return toApi(data);
+  },
+
+  // --- Meta Lead Ads ingestion ---------------------------------------------
+  // Dedup a re-synced lead by Meta's leadgen id (unique per submission).
+  async findByLeadMetaId(leadMetaId) {
+    if (!leadMetaId) return null;
+    const { data, error } = await getClient()
+      .from(TABLE)
+      .select('id')
+      .eq('lead_meta_id', String(leadMetaId))
+      .is('deleted_at', null)
+      .maybeSingle();
+    if (error) throw error;
+    return data ? { _id: data.id } : null;
+  },
+
+  // Look up a lead candidate by its résumé-upload token (the WhatsApp link).
+  // Returns minimal fields for the public upload page (no recruiter data).
+  async findByUploadToken(token) {
+    if (!token) return null;
+    const { data, error } = await getClient()
+      .from(TABLE)
+      .select('id, name, job_id, resume_url, resume_submitted_at')
+      .eq('resume_upload_token', String(token))
+      .is('deleted_at', null)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) return null;
+    return {
+      _id: data.id, name: data.name, jobId: data.job_id,
+      resumeUrl: data.resume_url, resumeSubmittedAt: data.resume_submitted_at || null,
+    };
+  },
+
+  // Attach a résumé to a lead candidate via its upload token and REQUEUE analysis
+  // (analysis_status -> 'pending' so the worker scores it). Scoped to the token.
+  async attachResumeByToken(token, resumeUrl) {
+    const { data, error } = await getClient()
+      .from(TABLE)
+      .update({
+        resume_url: resumeUrl,
+        analysis_status: 'pending',
+        analysis_error: null,
+        resume_submitted_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('resume_upload_token', String(token))
+      .is('deleted_at', null)
+      .select('*')
+      .maybeSingle();
+    if (error) throw error;
+    return data ? toApi(data) : null;
+  },
+
+  // Mark that the résumé-request WhatsApp message was sent.
+  async markResumeRequested(id) {
+    const { error } = await getClient()
+      .from(TABLE)
+      .update({ resume_requested_at: new Date().toISOString() })
+      .eq('id', id);
+    if (error) throw error;
+    return true;
   },
 
   // Has this email already applied to this job? Used to block duplicate public

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import IntegrationsPanel from '../components/IntegrationsPanel';
 import {
   Building,
   MapPin,
@@ -26,7 +27,8 @@ import {
   User,
   Mail,
   Lock,
-  Trash2
+  Trash2,
+  Plug
 } from 'lucide-react';
 
 const ROLES = ['Admin', 'Recruiter', 'Hiring Manager'];
@@ -507,6 +509,7 @@ const Settings = () => {
     { id: 'system', label: 'System Diagnostics', icon: Server, desc: 'Database connections and credentials' }
   ];
   if (isAdmin) {
+    tabs.push({ id: 'integrations', label: 'Integrations', icon: Plug, desc: 'Meta Lead Ads + WhatsApp' });
     tabs.push({ id: 'accounts', label: 'User Management', icon: UsersIcon, desc: 'Create and manage recruiter accounts' });
   }
 
@@ -1005,6 +1008,12 @@ const Settings = () => {
                   In the in-memory store, accounts and records persist until the server restarts.
                 </div>
               </div>
+            </div>
+          )}
+
+          {activeTab === 'integrations' && isAdmin && (
+            <div className="animate-in fade-in duration-200">
+              <IntegrationsPanel />
             </div>
           )}
 

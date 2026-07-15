@@ -92,6 +92,12 @@ alter table jobs add column if not exists quiz jsonb not null default '{}';
 -- an ANN index is the future upgrade once the pool reaches thousands of rows).
 alter table jobs add column if not exists embedding jsonb;
 alter table jobs add column if not exists embedding_model text;
+-- Meta Lead Ads mapping: a job can be linked to a Meta lead form so its leads
+-- auto-ingest as candidates for this role. meta_lead_cursor is the per-form
+-- watermark (last lead created_time synced) for idempotent incremental fetches.
+alter table jobs add column if not exists meta_form_id text;
+alter table jobs add column if not exists meta_lead_cursor timestamptz;
+create index if not exists jobs_meta_form_id_idx on jobs(meta_form_id);
 
 -- ---------------------------------------------------------------------------
 --  candidates
@@ -161,6 +167,15 @@ alter table candidates add column if not exists embedding_model text;
 -- recruiter pipeline, while this timestamp preserves that it was self-withdrawn
 -- (vs recruiter-rejected).
 alter table candidates add column if not exists withdrawn_at timestamptz;
+-- Meta Lead Ads ingestion (source='Lead'). lead_meta_id is Meta's leadgen id used
+-- to dedupe re-syncs. resume_upload_token backs the personal WhatsApp upload link
+-- (${APP_URL}/u/<token>); the requested/submitted timestamps track that flow.
+alter table candidates add column if not exists lead_meta_id text;
+alter table candidates add column if not exists resume_upload_token text;
+alter table candidates add column if not exists resume_requested_at timestamptz;
+alter table candidates add column if not exists resume_submitted_at timestamptz;
+create unique index if not exists candidates_lead_meta_id_idx on candidates(lead_meta_id) where lead_meta_id is not null;
+create unique index if not exists candidates_resume_upload_token_idx on candidates(resume_upload_token) where resume_upload_token is not null;
 
 -- ---------------------------------------------------------------------------
 --  notifications
@@ -201,6 +216,17 @@ create table if not exists settings (
 alter table settings add column if not exists ai_model text not null default '';
 
 alter table settings add column if not exists retention_days integer not null default 0;
+
+-- Meta Lead Ads + WhatsApp integration (auto-ingest job leads, request résumés).
+-- Tokens are stored ENCRYPTED at rest via utils/secretCrypto (same as ai_api_key);
+-- the controller masks them and never returns raw values to clients.
+alter table settings add column if not exists meta_access_token text not null default '';   -- Page access token (leads_retrieval)
+alter table settings add column if not exists meta_page_id text not null default '';
+alter table settings add column if not exists meta_graph_version text not null default 'v21.0';
+alter table settings add column if not exists meta_last_synced_at timestamptz;               -- global display only
+alter table settings add column if not exists whatsapp_access_token text not null default ''; -- may equal the Meta token
+alter table settings add column if not exists whatsapp_phone_number_id text not null default '';
+alter table settings add column if not exists whatsapp_template_name text not null default '';
 
 -- The backend seeds the single settings row (with sensible default departments
 -- and locations) on first read, so no INSERT is required here.

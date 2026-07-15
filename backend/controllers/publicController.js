@@ -153,3 +153,55 @@ exports.apply = async (req, res) => {
     return res.status(500).json({ success: false, message: 'Something went wrong submitting your application. Please try again.' });
   }
 };
+
+// @desc    Validate a Meta-lead résumé-upload token (the WhatsApp link target)
+// @route   GET /api/public/lead/:token
+// @access  Public (token is the credential)
+exports.getLeadByToken = async (req, res) => {
+  try {
+    const lead = await CandidateRepo.findByUploadToken(req.params.token);
+    if (!lead) return res.status(404).json({ success: false, message: 'This link is invalid or has expired.' });
+    let jobTitle = 'a role';
+    try {
+      const job = await JobRepo.findById(lead.jobId);
+      if (job) jobTitle = job.title;
+    } catch (_) { /* non-fatal */ }
+    return res.json({
+      success: true,
+      data: { name: lead.name, jobTitle, alreadySubmitted: Boolean(lead.resumeSubmittedAt || lead.resumeUrl) },
+    });
+  } catch (error) {
+    console.error('Lead token lookup error:', error);
+    return res.status(500).json({ success: false, message: 'Something went wrong. Please try again.' });
+  }
+};
+
+// @desc    Attach a résumé to a Meta lead via its upload token → triggers analysis
+// @route   POST /api/public/lead/:token/resume
+// @access  Public (token-scoped), rate-limited
+exports.submitLeadResume = async (req, res) => {
+  try {
+    const lead = await CandidateRepo.findByUploadToken(req.params.token);
+    if (!lead) return res.status(404).json({ success: false, message: 'This link is invalid or has expired.' });
+    if (!req.file || !req.file.buffer) {
+      return res.status(400).json({ success: false, message: 'Please attach your résumé (PDF or DOCX).' });
+    }
+    let stored;
+    try {
+      stored = await StorageService.uploadResume(req.file.buffer, req.file.originalname, req.file.mimetype);
+    } catch (storageErr) {
+      console.error('Lead résumé storage failed:', storageErr.message);
+      return res.status(502).json({ success: false, message: 'We could not store your résumé. Please try again.' });
+    }
+    // Attach + requeue for AI analysis (worker picks up analysis_status='pending').
+    const updated = await CandidateRepo.attachResumeByToken(req.params.token, stored.url);
+    if (!updated) return res.status(404).json({ success: false, message: 'This link is invalid or has expired.' });
+    return res.json({
+      success: true,
+      message: `Thank you${lead.name ? ', ' + lead.name : ''}! Your résumé was received and is being reviewed.`,
+    });
+  } catch (error) {
+    console.error('Lead résumé submit error:', error);
+    return res.status(500).json({ success: false, message: 'Something went wrong. Please try again.' });
+  }
+};

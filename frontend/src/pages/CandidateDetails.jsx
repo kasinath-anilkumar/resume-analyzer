@@ -386,6 +386,20 @@ const CandidateDetails = () => {
                   Applied via Careers
                 </span>
               )}
+              {candidate.source === 'Lead' && (
+                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20 uppercase tracking-wide">
+                  Meta Lead
+                </span>
+              )}
+              {candidate.source === 'Lead' && (
+                candidate.resumeSubmittedAt ? (
+                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 uppercase tracking-wide">Résumé received</span>
+                ) : candidate.resumeRequestedAt ? (
+                  <span title={`Requested ${new Date(candidate.resumeRequestedAt).toLocaleString()}`} className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 border border-amber-500/20 uppercase tracking-wide">Résumé requested</span>
+                ) : (
+                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-slate-500/10 text-slate-500 border border-slate-500/20 uppercase tracking-wide">Awaiting résumé</span>
+                )
+              )}
               {candidate.consentAt && (
                 <span title={`Consent given: ${new Date(candidate.consentAt).toLocaleString()}`} className="text-[9px] text-slate-400">
                   ✓ Consented {new Date(candidate.consentAt).toLocaleDateString()}

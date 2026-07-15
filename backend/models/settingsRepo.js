@@ -33,6 +33,14 @@ const toApi = (row) =>
     aiApiKey: decrypt(row.ai_api_key), // stored encrypted at rest
     aiModel: row.ai_model || '',
     retentionDays: row.retention_days || 0,
+    // Meta Lead Ads + WhatsApp (tokens decrypted here; controller masks them)
+    metaAccessToken: decrypt(row.meta_access_token),
+    metaPageId: row.meta_page_id || '',
+    metaGraphVersion: row.meta_graph_version || 'v21.0',
+    metaLastSyncedAt: row.meta_last_synced_at || null,
+    whatsappAccessToken: decrypt(row.whatsapp_access_token),
+    whatsappPhoneNumberId: row.whatsapp_phone_number_id || '',
+    whatsappTemplateName: row.whatsapp_template_name || '',
     updatedBy: row.updated_by,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -84,6 +92,14 @@ const SettingsRepo = {
       const n = parseInt(patch.retentionDays, 10);
       row.retention_days = Number.isFinite(n) && n >= 0 ? n : 0;
     }
+    // Meta Lead Ads + WhatsApp (tokens encrypted at rest).
+    if (patch.metaAccessToken !== undefined) row.meta_access_token = encrypt(patch.metaAccessToken);
+    if (patch.metaPageId !== undefined) row.meta_page_id = String(patch.metaPageId || '').trim();
+    if (patch.metaGraphVersion !== undefined) row.meta_graph_version = String(patch.metaGraphVersion || '').trim() || 'v21.0';
+    if (patch.metaLastSyncedAt !== undefined) row.meta_last_synced_at = patch.metaLastSyncedAt;
+    if (patch.whatsappAccessToken !== undefined) row.whatsapp_access_token = encrypt(patch.whatsappAccessToken);
+    if (patch.whatsappPhoneNumberId !== undefined) row.whatsapp_phone_number_id = String(patch.whatsappPhoneNumberId || '').trim();
+    if (patch.whatsappTemplateName !== undefined) row.whatsapp_template_name = String(patch.whatsappTemplateName || '').trim();
     if (userId) row.updated_by = userId;
 
     const { data, error } = await getClient()

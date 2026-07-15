@@ -18,6 +18,8 @@ const toApi = (row) =>
     status: row.status,
     screeningQuestions: row.screening_questions || [],
     quiz: row.quiz && typeof row.quiz === 'object' ? row.quiz : {},
+    metaFormId: row.meta_form_id || null,
+    metaLeadCursor: row.meta_lead_cursor || null,
     createdBy: row.created_by,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -179,6 +181,56 @@ const JobRepo = {
     if (error) throw error;
     if (!data || !data.embedding) return null;
     return { embedding: data.embedding, embeddingModel: data.embedding_model || null };
+  },
+
+  // --- Meta Lead Ads form mapping ------------------------------------------
+  // Jobs linked to a Meta lead form (drive the ingestion poll). Lean projection.
+  async listWithMetaForm() {
+    const { data, error } = await getClient()
+      .from(TABLE)
+      .select('id, title, department, meta_form_id, meta_lead_cursor')
+      .not('meta_form_id', 'is', null)
+      .neq('status', 'Archived');
+    if (error) throw error;
+    return (data || []).map((j) => ({
+      _id: j.id, title: j.title, department: j.department,
+      metaFormId: j.meta_form_id, metaLeadCursor: j.meta_lead_cursor || null,
+    }));
+  },
+
+  // Map (or with formId=null, unmap) a Meta lead form to a job. Setting a new
+  // form resets the per-form cursor so its existing leads are pulled on next sync.
+  async setMetaForm(id, formId) {
+    const { data, error } = await getClient()
+      .from(TABLE)
+      .update({ meta_form_id: formId || null, meta_lead_cursor: null, updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .select('*')
+      .maybeSingle();
+    if (error) throw error;
+    return toApi(data);
+  },
+
+  // Enforce one-form-per-job: unlink a Meta form from every job (used before
+  // linking it to a new job, so a form never points at two jobs).
+  async clearMetaFormEverywhere(formId) {
+    if (!formId) return true;
+    const { error } = await getClient()
+      .from(TABLE)
+      .update({ meta_form_id: null, meta_lead_cursor: null, updated_at: new Date().toISOString() })
+      .eq('meta_form_id', String(formId));
+    if (error) throw error;
+    return true;
+  },
+
+  // Advance a job's per-form watermark after a successful sync.
+  async setMetaCursor(id, isoTs) {
+    const { error } = await getClient()
+      .from(TABLE)
+      .update({ meta_lead_cursor: isoTs })
+      .eq('id', id);
+    if (error) throw error;
+    return true;
   },
 
   // Non-archived jobs still lacking an embedding (for the backfill sweep).

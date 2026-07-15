@@ -90,6 +90,7 @@ app.use('/api/candidates', require('./routes/candidateRoutes'));
 app.use('/api/analytics', require('./routes/analyticsRoutes'));
 app.use('/api/applicants', require('./routes/applicantsRoutes'));
 app.use('/api/settings', require('./routes/settingsRoutes'));
+app.use('/api/integrations', require('./routes/integrationsRoutes'));
 app.use('/api/notifications', require('./routes/notificationRoutes'));
 app.use('/api/audit', require('./routes/auditRoutes'));
 

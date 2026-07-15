@@ -2,6 +2,9 @@ const SettingsRepo = require('../models/settingsRepo');
 const AIService = require('../services/aiService');
 const AuditRepo = require('../models/auditRepo');
 
+// Mask a secret to a short hint, never revealing more than the last 4 chars.
+const mask = (s) => (s ? `${'•'.repeat(Math.max(0, String(s).length - 4))}${String(s).slice(-4)}` : '');
+
 // Build a client-safe view of settings. The raw API key is NEVER returned —
 // only a masked hint. AI-related config (provider, model, key status) is
 // exposed ONLY to Admins; everyone else gets just the general config they need
@@ -19,13 +22,25 @@ const sanitizeSettings = (settings, isAdmin) => {
   if (!isAdmin) return general;
 
   const key = settings.aiApiKey || '';
+  const metaToken = settings.metaAccessToken || '';
+  const waToken = settings.whatsappAccessToken || '';
   return {
     ...general,
     aiProvider: settings.aiProvider || 'mock',
     aiModel: settings.aiModel || '',
     aiKeyConfigured: !!key,
-    aiKeyMasked: key ? `${'•'.repeat(Math.max(0, key.length - 4))}${key.slice(-4)}` : '',
+    aiKeyMasked: mask(key),
     retentionDays: settings.retentionDays || 0,
+    // Meta Lead Ads + WhatsApp — raw tokens NEVER leave the server, only status + masks.
+    metaConfigured: !!(metaToken && settings.metaPageId),
+    metaTokenMasked: mask(metaToken),
+    metaPageId: settings.metaPageId || '',
+    metaGraphVersion: settings.metaGraphVersion || 'v21.0',
+    metaLastSyncedAt: settings.metaLastSyncedAt || null,
+    whatsappConfigured: !!(waToken && settings.whatsappPhoneNumberId && settings.whatsappTemplateName),
+    whatsappTokenMasked: mask(waToken),
+    whatsappPhoneNumberId: settings.whatsappPhoneNumberId || '',
+    whatsappTemplateName: settings.whatsappTemplateName || '',
   };
 };
 
@@ -109,16 +124,23 @@ exports.previewModels = async (req, res) => {
 // @access  Private (Admin, Recruiter)
 exports.updateSettings = async (req, res) => {
   try {
-    const { departments, locations, minAiScore, aiApiKey, aiModel, retentionDays } = req.body;
+    const {
+      departments, locations, minAiScore, aiApiKey, aiModel, retentionDays,
+      metaAccessToken, metaPageId, metaGraphVersion,
+      whatsappAccessToken, whatsappPhoneNumberId, whatsappTemplateName,
+    } = req.body;
 
-    // Only an Admin may change the AI key/model or the data-retention policy
-    // (retention auto-deletes candidate data, so it's Admin-gated).
+    // Only an Admin may change the AI key/model, the data-retention policy, or the
+    // Meta/WhatsApp integration credentials (all sensitive).
+    const touchingMetaWa =
+      typeof metaAccessToken === 'string' || metaPageId !== undefined || metaGraphVersion !== undefined ||
+      typeof whatsappAccessToken === 'string' || whatsappPhoneNumberId !== undefined || whatsappTemplateName !== undefined;
     const touchingAdminOnly =
-      typeof aiApiKey === 'string' || typeof aiModel === 'string' || retentionDays !== undefined;
+      typeof aiApiKey === 'string' || typeof aiModel === 'string' || retentionDays !== undefined || touchingMetaWa;
     if (touchingAdminOnly && req.user.role !== 'Admin') {
       return res.status(403).json({
         success: false,
-        message: 'Only an administrator can change the AI provider key/model or data-retention policy.',
+        message: 'Only an administrator can change the AI, retention, or Meta/WhatsApp integration settings.',
       });
     }
 
@@ -169,6 +191,17 @@ exports.updateSettings = async (req, res) => {
     // Allow explicitly setting the model (e.g. from the model picker).
     if (typeof aiModel === 'string') patch.aiModel = aiModel.trim();
 
+    // Meta Lead Ads + WhatsApp credentials/config. Tokens: a string sets/clears,
+    // undefined leaves untouched (same semantics as the AI key). Not validated on
+    // save — the Settings "Test connection" endpoint verifies them separately so
+    // saving stays a single fast write (no extra external call on the save path).
+    if (typeof metaAccessToken === 'string') patch.metaAccessToken = AIService.cleanKey(metaAccessToken);
+    if (metaPageId !== undefined) patch.metaPageId = metaPageId;
+    if (metaGraphVersion !== undefined) patch.metaGraphVersion = metaGraphVersion;
+    if (typeof whatsappAccessToken === 'string') patch.whatsappAccessToken = AIService.cleanKey(whatsappAccessToken);
+    if (whatsappPhoneNumberId !== undefined) patch.whatsappPhoneNumberId = whatsappPhoneNumberId;
+    if (whatsappTemplateName !== undefined) patch.whatsappTemplateName = whatsappTemplateName;
+
     const settings = await SettingsRepo.update(patch, req.user.id);
 
     // Audit the change, calling out the sensitive fields explicitly.
@@ -179,6 +212,11 @@ exports.updateSettings = async (req, res) => {
     if (departments !== undefined) changed.push('departments');
     if (locations !== undefined) changed.push('locations');
     if (minAiScore !== undefined) changed.push('min AI score');
+    if (typeof metaAccessToken === 'string') changed.push(patch.metaAccessToken ? 'Meta token' : 'Meta token cleared');
+    if (metaPageId !== undefined) changed.push('Meta page id');
+    if (typeof whatsappAccessToken === 'string') changed.push(patch.whatsappAccessToken ? 'WhatsApp token' : 'WhatsApp token cleared');
+    if (whatsappPhoneNumberId !== undefined) changed.push('WhatsApp phone id');
+    if (whatsappTemplateName !== undefined) changed.push('WhatsApp template');
     if (changed.length) {
       AuditRepo.log(req.user, 'settings.update', { entityType: 'settings', entityId: 'settings', summary: `Updated settings: ${changed.join(', ')}`, meta: { changed } });
     }
