@@ -11,7 +11,7 @@ const ApplicantRepo = require('../models/applicantRepo');
 const CandidateMatcher = require('../services/candidateMatcher');
 const EmbeddingService = require('../services/embeddingService');
 const { getOrCompute } = require('../utils/ttlCache');
-const { geocode, distanceKm } = require('../utils/geocode');
+const { geocodeOne, peek, warm, distanceKm } = require('../utils/geocode');
 
 // How strongly embedding similarity blends into the deterministic fit score when
 // semantic matching is available (0 = keyword-only, 1 = embedding-only).
@@ -185,14 +185,7 @@ async function getCandidatesByDistance(res, { filters, sort, radiusKm, page, pag
   const pg = Math.max(parseInt(page, 10) || 1, 1);
   const size = Math.min(Math.max(parseInt(pageSize, 10) || 25, 1), 500);
 
-  if (!filters.jobId) {
-    return res.status(400).json({ success: false, message: 'Select a job to sort candidates by distance from its location.' });
-  }
-  const job = await JobRepo.findById(filters.jobId);
-  const ref = job ? geocode(job.location) : null;
-
-  // Can't map the job's location → return the normal ordering and tell the UI why.
-  if (!ref) {
+  const unavailable = async (reason) => {
     const result = await CandidateRepo.listApiPaged({ ...filters, page, pageSize });
     return res.json({
       success: true,
@@ -201,21 +194,40 @@ async function getCandidatesByDistance(res, { filters, sort, radiusKm, page, pag
       page: result.page,
       pageSize: result.pageSize,
       data: result.rows,
-      distance: {
-        available: false,
-        reason: job
-          ? `Couldn't determine coordinates for the job location "${job.location}", so distance sorting is unavailable.`
-          : 'Job not found.',
-      },
+      distance: { available: false, reason },
     });
+  };
+
+  if (!filters.jobId) {
+    return res.status(400).json({ success: false, message: 'Select a job to sort candidates by distance from its location.' });
+  }
+  const job = await JobRepo.findById(filters.jobId);
+  if (!job) return unavailable('Job not found.');
+
+  // Resolve the reference (the job's location) now — one geocode, then cached.
+  // peek() avoids a network call once it's known; geocodeOne() resolves a miss.
+  let ref = peek(job.location);
+  if (ref === undefined) ref = await geocodeOne(job.location);
+  if (!ref) {
+    // null → searched, no coordinates. undefined → transient lookup failure.
+    return unavailable(
+      ref === undefined
+        ? 'Location lookup is temporarily unavailable — please try again in a moment.'
+        : `Couldn't find coordinates for the job location "${job.location}", so distance sorting is unavailable.`
+    );
   }
 
   const { rows, capped } = await CandidateRepo.searchAllMatching(filters, 3000);
   const radius = radiusKm ? parseInt(radiusKm, 10) : null;
 
+  // Kick off background resolution of any candidate locations we haven't cached
+  // yet (throttled), then compute distance from whatever's already resolved.
+  warm(rows.map((c) => c.currentLocation).filter(Boolean));
+  let warming = 0; // still being looked up — will appear on a later refresh
   let withDist = rows.map((c) => {
-    const cc = geocode(c.currentLocation);
-    return { ...c, distanceKm: cc ? distanceKm(ref, cc) : null };
+    const cc = c.currentLocation ? peek(c.currentLocation) : null;
+    if (cc === undefined) warming += 1;
+    return { ...c, distanceKm: cc && cc.lat != null ? distanceKm(ref, cc) : null };
   });
 
   if (radius && radius > 0) {
@@ -241,7 +253,7 @@ async function getCandidatesByDistance(res, { filters, sort, radiusKm, page, pag
     page: pg,
     pageSize: size,
     data: hydrated,
-    distance: { available: true, reference: job.location, radiusKm: radius || null, capped },
+    distance: { available: true, reference: job.location, radiusKm: radius || null, capped, warming },
   });
 }
 

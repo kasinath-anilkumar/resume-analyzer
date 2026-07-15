@@ -1,136 +1,112 @@
 // Server-side geocoding for the candidate distance filter.
 //
-// Resolves a free-text location ("Kochi", "cochin, kerala", "Bangalore") to
-// coordinates, so callers can compute the great-circle distance between a job's
-// location and each candidate's location.
+// Locations are SEARCHED and resolved to coordinates by a geocoding package
+// (`node-geocoder` with the OpenStreetMap / Nominatim provider). There are NO
+// hard-coded place names or coordinates and no alias table — the provider
+// understands common names, spellings and aliases natively (Bangalore→Bengaluru,
+// Trivandrum→Thiruvananthapuram, "Kochi, Kerala"…) and returns the coordinates,
+// which we then use to compute great-circle distance.
 //
-// COORDINATES COME FROM THE `all-the-cities` PACKAGE (~135k GeoNames cities —
-// offline, no API key, no rate limits, works in CI). We add only:
-//   • a small ALIAS map: common / older Indian names → the GeoNames canonical
-//     name the dataset uses (Kochi→Cochin, Bangalore→Bengaluru, Trivandrum→
-//     Thiruvananthapuram, Calicut→Kozhikode, Bombay→Mumbai…), and
-//   • a tiny SUPPLEMENT for a handful of Kerala towns the package omits (below
-//     its population cut-off) but that matter to this business.
-// Results are cached by input string so repeated locations cost nothing.
+// Nominatim asks for ≤1 request/second and a valid User-Agent, so:
+//   • every resolved location is CACHED (candidates share locations, so the
+//     cache warms fast and repeated lookups are free), and
+//   • cache misses are resolved in a THROTTLED BACKGROUND QUEUE — the request
+//     path never blocks on a slow network call; distance appears for a location
+//     once it's resolved (the candidate list auto-refreshes).
 
-// Common / older / vernacular names → the canonical name GeoNames stores.
-const ALIASES = {
-  kochi: 'cochin',
-  ernakulam: 'ernakulam',        // (supplemented below — package lacks it)
-  trivandrum: 'thiruvananthapuram',
-  calicut: 'kozhikode',
-  quilon: 'kollam',
-  alleppey: 'alappuzha',
-  cannanore: 'kannur',
-  trichur: 'thrissur',
-  palghat: 'palakkad',
-  kalpetta: 'wayanad',
-  bombay: 'mumbai',
-  madras: 'chennai',
-  calcutta: 'kolkata',
-  bangalore: 'bengaluru',
-  mysore: 'mysuru',
-  mangalore: 'mangaluru',
-  trichy: 'tiruchirappalli',
-  pondicherry: 'puducherry',
-  gurgaon: 'gurugram',
-  baroda: 'vadodara',
-  vizag: 'visakhapatnam',
-  poona: 'pune',
-  // A few non-Indian canonical-name fixes.
-  'new york': 'new york city',
-  nyc: 'new york city',
-};
-
-// The ONLY hard-coded coordinates: places `all-the-cities` doesn't include but
-// that are real (Parakkat-relevant) locations. Given rank 3 so they always win
-// a tie over a package match of the same token.
-const SUPPLEMENT = {
-  palakkad: { lat: 10.7867, lon: 76.6548 },
-  kasaragod: { lat: 12.4996, lon: 74.9869 },
-  pathanamthitta: { lat: 9.2648, lon: 76.7870 },
-  wayanad: { lat: 11.6085, lon: 76.0847 },
-  ernakulam: { lat: 9.9816, lon: 76.2999 },
-  nagercoil: { lat: 8.1833, lon: 77.4119 },
-};
+const USER_AGENT = 'ParakkatATS/1.0 (recruitment distance filter)';
+const MIN_INTERVAL_MS = 1100; // Nominatim usage policy: ≤ 1 request / second
 
 const norm = (s) => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
-const canonical = (name) => ALIASES[name] || name;
+const sleep = (ms) => new Promise((r) => {
+  const t = setTimeout(r, ms);
+  if (t.unref) t.unref(); // don't keep the process alive just for the throttle
+});
 
-// --- all-the-cities index (lazy: only built on first geocode) ----------------
-const GULF = new Set(['AE', 'QA', 'SA', 'OM', 'KW', 'BH']);
-// Preference rank: India (2) > Gulf (1) > rest (0). Ties → higher population.
-const rankOf = (country) => (country === 'IN' ? 2 : GULF.has(country) ? 1 : 0);
+// cache: norm(location) -> { lat, lon }  (resolved) | null (searched, not found)
+//        (a key ABSENT from the cache means "not looked up yet")
+const cache = new Map();
+const queued = new Set(); // locations waiting in / moving through the queue
+const queue = [];
+let pumping = false;
 
-let index = null; // Map<lowercaseName, { lat, lon, rank, population }>
-function buildIndex() {
-  const map = new Map();
-  let cities;
-  try {
-    cities = require('all-the-cities');
-  } catch (_) {
-    return map; // package unavailable → SUPPLEMENT-only
+// Lazily create the geocoder (so tests can inject a fake before first use, and
+// the package isn't required until actually needed).
+let geocoderInstance = null;
+function geocoder() {
+  if (!geocoderInstance) {
+    const NodeGeocoder = require('node-geocoder');
+    geocoderInstance = NodeGeocoder({
+      provider: process.env.GEOCODER_PROVIDER || 'openstreetmap',
+      headers: { 'User-Agent': USER_AGENT },
+    });
   }
-  for (const c of cities) {
-    const key = norm(c.name);
-    if (!key) continue;
-    const rank = rankOf(c.country);
-    const prev = map.get(key);
-    if (!prev || rank > prev.rank || (rank === prev.rank && c.population > prev.population)) {
-      const [lon, lat] = c.loc.coordinates;
-      map.set(key, { lat, lon, rank, population: c.population });
-    }
-  }
-  return map;
+  return geocoderInstance;
+}
+// Test seam: inject a fake `{ geocode(query) -> [{ latitude, longitude }] }`.
+function __setGeocoder(fake) {
+  geocoderInstance = fake;
 }
 
-// Resolve ONE token to { lat, lon, rank, population } (or null). Supplement first
-// (it fills package gaps), then the package by canonical name.
-function resolveToken(token) {
-  const name = canonical(token);
-  if (SUPPLEMENT[name]) return { ...SUPPLEMENT[name], rank: 3, population: Infinity };
-  if (!index) index = buildIndex();
-  return index.get(name) || null;
+const toCoords = (res) => {
+  const hit = Array.isArray(res) ? res[0] : null;
+  if (!hit || !Number.isFinite(hit.latitude) || !Number.isFinite(hit.longitude)) return null;
+  return { lat: hit.latitude, lon: hit.longitude };
+};
+
+// Synchronous cache read. Returns { lat, lon } | null (searched, not found) |
+// undefined (not looked up yet).
+function peek(location) {
+  const key = norm(location);
+  if (!key) return null;
+  return cache.has(key) ? cache.get(key) : undefined;
 }
 
-const better = (a, b) => !b || a.rank > b.rank || (a.rank === b.rank && a.population > b.population);
-
-// --- Public API --------------------------------------------------------------
-const cache = new Map(); // input(lowercased) -> { lat, lon } | null
-
-// Resolve a free-text location to { lat, lon }, or null if unknown.
-function geocode(text) {
-  const key = norm(text);
+// Resolve one location now (await). Caches the result. Never throws — returns
+// undefined on a transient network error (left uncached so it can be retried).
+async function geocodeOne(location) {
+  const key = norm(location);
   if (!key) return null;
   if (cache.has(key)) return cache.get(key);
-
-  // Primary pass: the whole string + each comma-separated part (these look like
-  // real locations, so any country is accepted — "London, UK" resolves too). The
-  // best match by rank+population wins, so "Kochi, Kerala" picks Kochi over the
-  // state and "Whitefield, Bangalore" picks Bangalore over the neighbourhood.
-  const parts = new Set([key, ...key.split(',').map((s) => s.trim()).filter(Boolean)]);
-  let best = null;
-  for (const p of parts) {
-    const r = resolveToken(p);
-    if (r && better(r, best)) best = r;
+  try {
+    const coords = toCoords(await geocoder().geocode(key));
+    cache.set(key, coords); // coords or null (searched, not found)
+    return coords;
+  } catch (_) {
+    return undefined; // transient — do not cache, allow a later retry
   }
+}
 
-  // Fallback pass: scan individual words / adjacent word-pairs, but ONLY accept
-  // India/Gulf matches (rank ≥ 1). This lets "based in kochi" resolve while a
-  // stray English word ("Remote", "Work from home") can't match a random city.
-  if (!best) {
-    const words = key.replace(/,/g, ' ').split(/\s+/).filter(Boolean);
-    const derived = new Set(words);
-    for (let i = 0; i < words.length - 1; i += 1) derived.add(`${words[i]} ${words[i + 1]}`);
-    for (const p of derived) {
-      const r = resolveToken(p);
-      if (r && r.rank >= 1 && better(r, best)) best = r;
+// Enqueue locations for background resolution (deduped against the cache and the
+// in-flight set). Non-blocking.
+function warm(locations) {
+  for (const loc of locations || []) {
+    const key = norm(loc);
+    if (!key || cache.has(key) || queued.has(key)) continue;
+    queued.add(key);
+    queue.push(key);
+  }
+  pump();
+}
+
+async function pump() {
+  if (pumping) return;
+  pumping = true;
+  try {
+    while (queue.length) {
+      const key = queue.shift();
+      if (cache.has(key)) { queued.delete(key); continue; }
+      try {
+        cache.set(key, toCoords(await geocoder().geocode(key)));
+      } catch (_) {
+        // transient — leave uncached so a future warm() retries it
+      }
+      queued.delete(key);
+      await sleep(MIN_INTERVAL_MS); // respect the rate limit
     }
+  } finally {
+    pumping = false;
   }
-
-  const coords = best ? { lat: best.lat, lon: best.lon } : null;
-  cache.set(key, coords);
-  return coords;
 }
 
 // Great-circle distance in kilometres between two { lat, lon } points (rounded).
@@ -146,9 +122,4 @@ function distanceKm(a, b) {
   return Math.round(2 * R * Math.asin(Math.sqrt(h)));
 }
 
-// Distance (km) between two free-text locations, or null if either is unknown.
-function distanceBetween(locA, locB) {
-  return distanceKm(geocode(locA), geocode(locB));
-}
-
-module.exports = { geocode, distanceKm, distanceBetween };
+module.exports = { geocodeOne, peek, warm, distanceKm, __setGeocoder };

@@ -1,50 +1,61 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
-const { geocode, distanceKm, distanceBetween } = require('../utils/geocode');
+const geo = require('../utils/geocode');
 
-test('geocode: resolves curated cities and common aliases', () => {
-  for (const name of ['Kochi', 'Cochin', 'Ernakulam', 'Trivandrum', 'Calicut', 'Bangalore', 'Bombay', 'Dubai']) {
-    const c = geocode(name);
-    assert.ok(c && typeof c.lat === 'number' && typeof c.lon === 'number', `should resolve: ${name}`);
-  }
-  // Aliases point at the same place as their canonical name.
-  assert.deepStrictEqual(geocode('Cochin'), geocode('Kochi'));
-  assert.deepStrictEqual(geocode('Trivandrum'), geocode('Thiruvananthapuram'));
-  assert.deepStrictEqual(geocode('Bangalore'), geocode('Bengaluru'));
+// Inject a fake provider so tests are deterministic and hit NO network (the real
+// OpenStreetMap/Nominatim provider is only used at runtime).
+let calls = [];
+const DATA = {
+  kochi: [{ latitude: 9.9312, longitude: 76.2673 }],
+  kottayam: [{ latitude: 9.5916, longitude: 76.5222 }],
+  trivandrum: [{ latitude: 8.5241, longitude: 76.9366 }],
+  'nowhere-xyz': [],
+};
+const fakeProvider = { geocode: async (q) => { calls.push(q); return DATA[q] || []; } };
+geo.__setGeocoder(fakeProvider);
+
+test('geocodeOne resolves via the provider and caches (no repeat network calls)', async () => {
+  calls = [];
+  const a = await geo.geocodeOne('Kochi');
+  assert.deepStrictEqual(a, { lat: 9.9312, lon: 76.2673 });
+  const b = await geo.geocodeOne('KOCHI  '); // same normalized key → cached
+  assert.deepStrictEqual(b, a);
+  assert.strictEqual(calls.length, 1);
 });
 
-test('geocode: handles free-text with state suffixes and areas', () => {
-  assert.ok(geocode('kochi, kerala'));
-  assert.ok(geocode('Whitefield, Bangalore'));       // area, city → matches city
-  assert.ok(geocode('New Delhi'));
-  assert.notDeepStrictEqual(geocode('New Delhi'), geocode('Delhi')); // distinct places
+test('peek reflects cache state (undefined → coords)', async () => {
+  assert.strictEqual(geo.peek('Trivandrum'), undefined); // not looked up yet
+  await geo.geocodeOne('Trivandrum');
+  assert.deepStrictEqual(geo.peek('Trivandrum'), { lat: 8.5241, lon: 76.9366 });
 });
 
-test('geocode: distinct city names do not collide (exact, not substring)', () => {
-  // "Goalpara" is its own city — it must NOT resolve to "Goa".
-  assert.notDeepStrictEqual(geocode('Goalpara'), geocode('Goa'));
-  assert.ok(geocode('Goa'));
+test('a searched-but-not-found location caches as null', async () => {
+  assert.strictEqual(await geo.geocodeOne('nowhere-xyz'), null);
+  assert.strictEqual(geo.peek('nowhere-xyz'), null);
 });
 
-test('geocode: unknown / empty locations return null', () => {
-  assert.strictEqual(geocode(''), null);
-  assert.strictEqual(geocode(null), null);
-  assert.strictEqual(geocode('Remote'), null);
-  assert.strictEqual(geocode('Work from home'), null);
+test('geocodeOne never throws on a provider error (returns undefined, uncached)', async () => {
+  geo.__setGeocoder({ geocode: async () => { throw new Error('network down'); } });
+  const r = await geo.geocodeOne('some-new-place');
+  assert.strictEqual(r, undefined);
+  assert.strictEqual(geo.peek('some-new-place'), undefined); // left uncached to retry
+  geo.__setGeocoder(fakeProvider); // restore
 });
 
-test('distanceKm: great-circle distance is accurate and symmetric', () => {
-  const kochi = geocode('Kochi');
-  const tvm = geocode('Trivandrum');
-  const d = distanceKm(kochi, tvm);
+test('warm resolves queued locations in the background, deduped', async () => {
+  calls = [];
+  geo.warm(['Kottayam', 'kottayam', '']); // dupes + empty ignored
+  await new Promise((r) => setTimeout(r, 60)); // let the queue process the first item
+  assert.deepStrictEqual(geo.peek('Kottayam'), { lat: 9.5916, lon: 76.5222 });
+  assert.strictEqual(calls.length, 1);
+});
+
+test('distanceKm: accurate, symmetric, null-safe', () => {
+  const kochi = { lat: 9.9312, lon: 76.2673 };
+  const tvm = { lat: 8.5241, lon: 76.9366 };
+  const d = geo.distanceKm(kochi, tvm);
   assert.ok(d >= 160 && d <= 190, `Kochi↔Trivandrum ~173km, got ${d}`);
-  assert.strictEqual(distanceKm(kochi, tvm), distanceKm(tvm, kochi));
-  assert.strictEqual(distanceKm(kochi, kochi), 0);
-  assert.strictEqual(distanceKm(null, kochi), null);
-});
-
-test('distanceBetween: end-to-end from two free-text locations', () => {
-  const d = distanceBetween('Kottayam', 'Kochi, Kerala');
-  assert.ok(d >= 35 && d <= 60, `Kottayam↔Kochi ~47km, got ${d}`);
-  assert.strictEqual(distanceBetween('Kochi', 'Remote'), null); // one side unknown
+  assert.strictEqual(geo.distanceKm(kochi, tvm), geo.distanceKm(tvm, kochi));
+  assert.strictEqual(geo.distanceKm(kochi, kochi), 0);
+  assert.strictEqual(geo.distanceKm(null, kochi), null);
 });

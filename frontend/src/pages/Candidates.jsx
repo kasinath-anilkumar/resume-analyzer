@@ -473,11 +473,16 @@ const Candidates = () => {
           </div>
         ) : (
           <div className="mb-3 flex items-center gap-2 px-3 py-2 rounded-xl bg-brand-500/5 border border-brand-500/10 text-[11px] text-slate-500 dark:text-slate-400">
-            <MapPin size={12} className="text-brand-500 shrink-0" />
+            {distanceInfo.warming > 0
+              ? <Loader2 size={12} className="text-brand-500 shrink-0 animate-spin" />
+              : <MapPin size={12} className="text-brand-500 shrink-0" />}
             <span>
               Sorted by distance from <span className="font-semibold text-slate-700 dark:text-slate-300">{distanceInfo.reference}</span>
               {distanceInfo.radiusKm ? ` · within ${distanceInfo.radiusKm} km` : ''}
-              {'. '}Candidates with an unrecognized location are listed last.
+              {'. '}
+              {distanceInfo.warming > 0
+                ? `Looking up ${distanceInfo.warming} more location${distanceInfo.warming === 1 ? '' : 's'} — they'll slot in as they resolve.`
+                : 'Candidates with an unrecognized location are listed last.'}
               {distanceInfo.capped ? ' Showing the top matches only — narrow the filters for full coverage.' : ''}
             </span>
           </div>
