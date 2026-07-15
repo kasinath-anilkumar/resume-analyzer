@@ -16,6 +16,7 @@ import PortalDashboard from './pages/portal/PortalDashboard';
 import PortalApplicationDetail from './pages/portal/PortalApplicationDetail';
 import PortalProfile from './pages/portal/PortalProfile';
 import Dashboard from './pages/Dashboard';
+import Analytics from './pages/Analytics';
 import Jobs from './pages/Jobs';
 import JobForm from './pages/JobForm';
 import Candidates from './pages/Candidates';
@@ -99,6 +100,7 @@ function App() {
               }
             >
               <Route index element={<Dashboard />} />
+              <Route path="analytics" element={<Analytics />} />
               <Route path="jobs" element={<Jobs />} />
               <Route path="jobs/new" element={<JobForm />} />
               <Route path="jobs/:id/edit" element={<JobForm />} />

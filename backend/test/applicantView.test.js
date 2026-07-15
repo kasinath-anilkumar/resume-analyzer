@@ -1,7 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 
-const { publicStatus, stageOf, toApplicantView, toApplicantDetail } = require('../services/applicantView');
+const { publicStatus, stageOf, toApplicantView, toApplicantDetail, canWithdraw } = require('../services/applicantView');
 
 // A candidate row loaded with internal recruiter data that must NOT leak.
 const loadedCandidate = () => ({
@@ -68,8 +68,38 @@ test('timeline marks progress and the current stage', () => {
 
 test('toApplicantView is a lean list card', () => {
   const view = toApplicantView(loadedCandidate());
-  assert.deepEqual(Object.keys(view).sort(), ['_id', 'appliedAt', 'job', 'nextInterviewAt', 'outcome', 'stageIndex', 'status'].sort());
+  assert.deepEqual(
+    Object.keys(view).sort(),
+    ['_id', 'appliedAt', 'canWithdraw', 'job', 'nextInterviewAt', 'outcome', 'stageIndex', 'status', 'withdrawn', 'withdrawnAt'].sort()
+  );
   assert.equal(view.nextInterviewAt, '2026-06-20T10:00:00Z'); // latest scheduled
+  assert.equal(view.withdrawn, false);
+  assert.equal(view.canWithdraw, true); // Interview stage is still open
+});
+
+test('canWithdraw only for still-open, non-withdrawn applications', () => {
+  assert.equal(canWithdraw({ status: 'Applied' }), true);
+  assert.equal(canWithdraw({ status: 'Interview' }), true);
+  assert.equal(canWithdraw({ status: 'Offer' }), true);   // may decline an offer
+  assert.equal(canWithdraw({ status: 'Hired' }), false);
+  assert.equal(canWithdraw({ status: 'Rejected' }), false);
+  assert.equal(canWithdraw({ status: 'Interview', withdrawnAt: '2026-06-15T00:00:00Z' }), false);
+});
+
+test('a withdrawn application shows as Withdrawn and hides interviews', () => {
+  const c = loadedCandidate();
+  c.withdrawnAt = '2026-06-15T00:00:00Z';
+  c.status = 'Rejected'; // the recruiter-side close that accompanies a withdrawal
+  const view = toApplicantView(c);
+  assert.equal(view.status, 'Withdrawn'); // NOT "Not Selected"
+  assert.equal(view.withdrawn, true);
+  assert.equal(view.canWithdraw, false);
+  assert.equal(view.outcome, 'negative');
+  assert.equal(view.nextInterviewAt, null);
+
+  const detail = toApplicantDetail(c);
+  assert.equal(detail.interviews.length, 0); // withdrawn → interviews hidden
+  assert.equal(detail.status, 'Withdrawn');
 });
 
 test('serializers tolerate a missing/empty candidate', () => {

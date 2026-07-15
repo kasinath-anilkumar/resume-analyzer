@@ -42,6 +42,13 @@ const stageOf = (status) => {
 
 const TIMELINE = ['Application Received', 'Under Review', 'Interview', 'Decision'];
 
+// An applicant may withdraw an application that is still open (not already
+// decided or withdrawn). The recruiter closes it as 'Rejected' under the hood,
+// but withdrawnAt is what the portal keys off — so the applicant sees "Withdrawn"
+// rather than "Not Selected".
+const isWithdrawn = (c) => Boolean(c && c.withdrawnAt);
+const canWithdraw = (c) => !isWithdrawn(c) && !['Hired', 'Rejected'].includes(c && c.status);
+
 const safeJob = (job) => {
   if (!job || typeof job !== 'object') return { title: 'A role' };
   return {
@@ -69,32 +76,38 @@ const safeInterviews = (interviews) =>
 // List-card shape.
 const toApplicantView = (c) => {
   if (!c) return null;
+  const withdrawn = isWithdrawn(c);
   const { index, outcome } = stageOf(c.status);
   const interviews = safeInterviews(c.interviews);
   return {
     _id: c._id,
     job: safeJob(c.jobId),
     appliedAt: c.createdAt,
-    status: publicStatus(c.status),
+    status: withdrawn ? 'Withdrawn' : publicStatus(c.status),
     stageIndex: index,
-    outcome,
-    nextInterviewAt: interviews.length ? interviews[interviews.length - 1].scheduledAt : null,
+    outcome: withdrawn ? 'negative' : outcome,
+    withdrawn,
+    withdrawnAt: withdrawn ? c.withdrawnAt : null,
+    canWithdraw: canWithdraw(c),
+    nextInterviewAt: withdrawn || !interviews.length ? null : interviews[interviews.length - 1].scheduledAt,
   };
 };
 
 // Detail shape — role description, the full (sanitized) interview list, timeline.
 const toApplicantDetail = (c) => {
   if (!c) return null;
+  const withdrawn = isWithdrawn(c);
   const { index, outcome } = stageOf(c.status);
+  const negativeOutcome = withdrawn || outcome === 'negative';
   return {
     ...toApplicantView(c),
-    interviews: safeInterviews(c.interviews),
+    interviews: withdrawn ? [] : safeInterviews(c.interviews),
     timeline: TIMELINE.map((label, i) => ({
       label,
-      done: outcome === 'negative' ? i < index : i <= index,
+      done: negativeOutcome ? i < index : i <= index,
       current: i === index,
     })),
   };
 };
 
-module.exports = { publicStatus, stageOf, toApplicantView, toApplicantDetail, PUBLIC_STATUS, TIMELINE };
+module.exports = { publicStatus, stageOf, toApplicantView, toApplicantDetail, isWithdrawn, canWithdraw, PUBLIC_STATUS, TIMELINE };

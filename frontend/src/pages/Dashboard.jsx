@@ -266,7 +266,7 @@ const Dashboard = () => {
         </div>
 
         {/* Skill Distribution Grid / Bar Chart */}
-        <div className="p-3 bg-white dark:bg-darkCard border border-slate-200/60 dark:border-darkBorder rounded-2xl shadow-premium dark:shadow-premium-dark">
+        <div className="p-3 bg-white dark:bg-darkCard border border-slate-200/60 dark:border-darkBorder rounded-2xl shadow-premium dark:shadow-premium-dark mb-5 sm:mb-5 md:mb-0">
           <div>
             <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">Talent Skill Gap Aggregates</h3>
             <p className="text-[11px] text-slate-400">Frequency of technical and soft skills in parsed candidate profiles.</p>

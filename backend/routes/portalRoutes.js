@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { register, login, getMe, changePassword, forgotPassword, resetPassword } = require('../controllers/portalAuthController');
-const { getMyApplications, getMyApplication, updateMe, uploadResume } = require('../controllers/portalController');
+const { getMyApplications, getMyApplication, withdrawMyApplication, updateMe, uploadResume } = require('../controllers/portalController');
 const { protectApplicant } = require('../middleware/auth');
 const { authLimiter } = require('../middleware/rateLimit');
 const upload = require('../middleware/upload');
@@ -22,5 +22,6 @@ router.post('/change-password', protectApplicant, changePassword);
 router.post('/resume', protectApplicant, upload.single('resume'), uploadResume);
 router.get('/applications', protectApplicant, getMyApplications);
 router.get('/applications/:id', protectApplicant, getMyApplication);
+router.post('/applications/:id/withdraw', protectApplicant, withdrawMyApplication);
 
 module.exports = router;

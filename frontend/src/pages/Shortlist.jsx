@@ -4,7 +4,8 @@ import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import {
   Sparkles, Briefcase, Loader2, AlertCircle, CheckCircle, AlertTriangle,
-  ChevronRight, Award, Users, ThumbsUp, ThumbsDown, RefreshCw, ArrowRightLeft, Shuffle
+  ChevronRight, Award, Users, ThumbsUp, ThumbsDown, RefreshCw, ArrowRightLeft, Shuffle,
+  BrainCircuit, Wand2
 } from 'lucide-react';
 
 // Candidates are grouped by how well they fit THE SELECTED JOB (computed live by
@@ -26,11 +27,15 @@ const scoreColor = (s = 0) =>
 const Shortlist = () => {
   const { user } = useAuth();
   const isHR = ['Admin', 'Recruiter'].includes(user?.role);
+  const isAdmin = user?.role === 'Admin';
   const [jobs, setJobs] = useState([]);
   const [jobId, setJobId] = useState('');
   const [candidates, setCandidates] = useState([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState(null);
+  const [semantic, setSemantic] = useState(false);
+  const [backfilling, setBackfilling] = useState(false);
+  const [backfillMsg, setBackfillMsg] = useState('');
 
   useEffect(() => {
     api.get('/jobs?status=Active')
@@ -49,7 +54,10 @@ const Shortlist = () => {
     try {
       setLoading(true);
       const res = await api.get(`/candidates/recommendations?jobId=${jobId}`);
-      if (res.data.success) setCandidates(res.data.data); // already ranked by fit
+      if (res.data.success) {
+        setCandidates(res.data.data); // already ranked by fit
+        setSemantic(Boolean(res.data.semantic));
+      }
     } catch (err) {
       console.error(err);
     } finally {
@@ -58,6 +66,22 @@ const Shortlist = () => {
   }, [jobId]);
 
   useEffect(() => { fetchRecommendations(); }, [fetchRecommendations]);
+
+  // Admin: (re)build the embedding index so semantic matching covers all existing
+  // candidates + jobs. New rows are embedded automatically after analysis.
+  const rebuildIndex = async () => {
+    setBackfilling(true);
+    setBackfillMsg('');
+    try {
+      const res = await api.post('/candidates/embeddings/backfill');
+      setBackfillMsg(res.data?.message || 'Semantic index updated.');
+      await fetchRecommendations();
+    } catch (err) {
+      setBackfillMsg(err.response?.data?.message || 'Could not update the semantic index.');
+    } finally {
+      setBackfilling(false);
+    }
+  };
 
   const setStatus = async (cand, status) => {
     setBusyId(cand._id);
@@ -103,12 +127,28 @@ const Shortlist = () => {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-lg sm:text-xl font-extrabold text-slate-800 dark:text-slate-100 flex items-center">
-            <Sparkles size={18} className="mr-2 text-brand-500" /> Recommended Candidates
+          <h2 className="text-lg sm:text-xl font-extrabold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+            <Sparkles size={18} className="text-brand-500" /> Recommended Candidates
+            {semantic && (
+              <span title="Scores blended with AI embedding similarity so semantically-related résumés surface even without exact keyword matches" className="inline-flex items-center gap-1 text-[9px] sm:text-[10px] font-bold px-2 py-0.5 rounded-full bg-gradient-to-r from-brand-500/15 to-indigo-500/15 text-brand-600 dark:text-brand-300 border border-brand-500/20">
+                <BrainCircuit size={11} /> Semantic AI
+              </span>
+            )}
           </h2>
           <p className="text-[10px] sm:text-xs text-slate-500">Your whole talent pool ranked by fit for this role — including strong candidates who applied elsewhere.</p>
         </div>
         <div className="flex items-center gap-2">
+          {isAdmin && (
+            <button
+              onClick={rebuildIndex}
+              disabled={backfilling}
+              title="Rebuild the AI semantic index for all existing candidates & jobs"
+              className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg bg-white dark:bg-darkCard border border-slate-200 dark:border-darkBorder shadow-sm text-[10px] sm:text-xs font-semibold text-slate-600 dark:text-slate-300 hover:text-brand-500 disabled:opacity-40 transition"
+            >
+              {backfilling ? <Loader2 size={13} className="animate-spin" /> : <Wand2 size={13} />}
+              <span className="hidden sm:inline">{backfilling ? 'Indexing…' : 'Rebuild index'}</span>
+            </button>
+          )}
           <button
             onClick={fetchRecommendations}
             disabled={loading || !jobId}
@@ -131,6 +171,13 @@ const Shortlist = () => {
           </div>
         </div>
       </div>
+
+      {backfillMsg && (
+        <div className="flex items-center gap-2 text-[11px] font-medium text-brand-700 dark:text-brand-300 bg-brand-500/5 border border-brand-500/15 rounded-lg px-3 py-2">
+          <BrainCircuit size={13} className="shrink-0" />
+          <span>{backfillMsg}</span>
+        </div>
+      )}
 
       {/* Summary tiles */}
       {!loading && total > 0 && (
@@ -214,6 +261,15 @@ const RecCard = ({ c, isHR, busy, onStatus, onMove }) => {
             </span>
           )}
           <span className="text-[8px] sm:text-[9px] font-bold px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500">{c.status}</span>
+          {m.semantic && m.semanticScore != null && (
+            <span
+              title={`AI semantic similarity to this role: ${m.semanticScore}%${m.score > m.deterministicScore ? ` — boosted this fit from ${m.deterministicScore}` : ''}`}
+              className="inline-flex items-center gap-0.5 text-[8px] sm:text-[9px] font-bold px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-600 dark:text-indigo-300 border border-indigo-500/20"
+            >
+              <BrainCircuit size={9} className="shrink-0" /> AI {m.semanticScore}
+              {m.score > m.deterministicScore && <span className="text-emerald-500">↑</span>}
+            </span>
+          )}
         </div>
 
         <p className="text-[9.5px] sm:text-[10.5px] text-slate-500 dark:text-slate-400 mt-1 line-clamp-2">{m.reason || c.careerSummary || 'No summary available.'}</p>

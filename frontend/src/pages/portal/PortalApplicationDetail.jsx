@@ -4,7 +4,7 @@ import portalApi from '../../services/portalApi';
 import PortalShell, { statusPill } from './PortalShell';
 import {
   Loader2, ChevronLeft, MapPin, Clock, Briefcase, Calendar,
-  CalendarClock, Video, Building2, AlertCircle
+  CalendarClock, Video, Building2, AlertCircle, XCircle, Ban
 } from 'lucide-react';
 
 const fmtDateTime = (d) => (d ? new Date(d).toLocaleString(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'To be scheduled');
@@ -14,6 +14,8 @@ const PortalApplicationDetail = () => {
   const [app, setApp] = useState(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  const [withdrawing, setWithdrawing] = useState(false);
+  const [withdrawErr, setWithdrawErr] = useState('');
 
   useEffect(() => {
     portalApi.get(`/applications/${id}`)
@@ -21,6 +23,22 @@ const PortalApplicationDetail = () => {
       .catch(() => setNotFound(true))
       .finally(() => setLoading(false));
   }, [id]);
+
+  const withdraw = async () => {
+    if (!window.confirm('Withdraw this application? This tells the hiring team you are no longer interested and cannot be undone.')) return;
+    setWithdrawing(true);
+    setWithdrawErr('');
+    try {
+      await portalApi.post(`/applications/${id}/withdraw`);
+      // Re-fetch so the status, timeline, and interview list all reflect it.
+      const res = await portalApi.get(`/applications/${id}`);
+      if (res.data.success) setApp(res.data.data);
+    } catch (err) {
+      setWithdrawErr(err.response?.data?.message || 'Could not withdraw this application. Please try again.');
+    } finally {
+      setWithdrawing(false);
+    }
+  };
 
   if (loading) {
     return <PortalShell><div className="flex justify-center py-24"><Loader2 size={28} className="animate-spin text-[#c5a880]" /></div></PortalShell>;
@@ -85,7 +103,7 @@ const PortalApplicationDetail = () => {
                       
                       <div className="flex-1">
                         <span className={`text-[11px] tracking-widest uppercase font-semibold block ${step.current ? 'text-[#1c1c1c] dark:text-[#f5efe9]' : step.done ? 'text-slate-700 dark:text-slate-300' : 'text-slate-400'}`}>
-                          {negativeFinal ? 'Decision — Not Selected' : step.label}
+                          {negativeFinal ? (app.withdrawn ? 'Withdrawn by you' : 'Decision — Not Selected') : step.label}
                         </span>
                         {step.done && (
                           <span className="text-[9px] tracking-wider text-slate-400 dark:text-slate-500 block mt-0.5 uppercase font-medium">Completed</span>
@@ -138,6 +156,29 @@ const PortalApplicationDetail = () => {
           <Link to="/careers" className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-widest text-[#c5a880] mt-6 hover:underline">
             <Briefcase size={12} /> Browse more roles
           </Link>
+
+          {/* Withdraw — only while the application is still open */}
+          <div className="mt-8 pt-6 border-t luxury-border-thin">
+            {app.withdrawn ? (
+              <div className="flex items-start gap-2 text-[10px] tracking-wide uppercase text-slate-500">
+                <Ban size={13} className="text-rose-500 mt-0.5 shrink-0" />
+                <span>You withdrew this application{app.withdrawnAt ? ` on ${new Date(app.withdrawnAt).toLocaleDateString()}` : ''}.</span>
+              </div>
+            ) : app.canWithdraw ? (
+              <>
+                <button
+                  onClick={withdraw}
+                  disabled={withdrawing}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 border border-rose-400/40 text-rose-500 hover:bg-rose-500/10 text-[10px] font-bold uppercase tracking-widest transition disabled:opacity-40"
+                >
+                  {withdrawing ? <Loader2 size={13} className="animate-spin" /> : <XCircle size={13} />}
+                  {withdrawing ? 'Withdrawing…' : 'Withdraw application'}
+                </button>
+                {withdrawErr && <p className="text-[10px] text-rose-500 mt-2 tracking-wide">{withdrawErr}</p>}
+                <p className="text-[9px] text-slate-400 mt-2 tracking-wide leading-relaxed">Let the team know you're no longer pursuing this role. This can't be undone.</p>
+              </>
+            ) : null}
+          </div>
         </div>
       </div>
     </PortalShell>

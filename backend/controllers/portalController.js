@@ -75,3 +75,23 @@ exports.getMyApplication = async (req, res) => {
     return res.status(500).json({ success: false, message: 'Could not load this application.' });
   }
 };
+
+// @desc    Withdraw the applicant's own (still-open) application
+// @route   POST /api/portal/applications/:id/withdraw
+// @access  Private (applicant)
+exports.withdrawMyApplication = async (req, res) => {
+  try {
+    const row = await CandidateRepo.withdrawForApplicant(req.params.id, req.applicant.email);
+    if (!row) {
+      // Either it isn't theirs, doesn't exist, or is already decided/withdrawn.
+      return res.status(409).json({
+        success: false,
+        message: 'This application can no longer be withdrawn (it may already be closed or withdrawn).',
+      });
+    }
+    return res.json({ success: true, message: 'Your application has been withdrawn.', data: toApplicantView(row) });
+  } catch (error) {
+    console.error('Portal withdraw error:', error);
+    return res.status(500).json({ success: false, message: 'Could not withdraw this application.' });
+  }
+};

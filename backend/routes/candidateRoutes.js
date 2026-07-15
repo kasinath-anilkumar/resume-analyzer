@@ -15,6 +15,7 @@ const {
   deletePerson,
   exportCandidate,
   getRecommendations,
+  backfillEmbeddings,
   getDashboardStats,
   scheduleInterview,
   deleteInterview,
@@ -36,6 +37,9 @@ router.get('/trash', protect, authorize('Admin', 'Recruiter'), getTrash);
 
 // Manually add a candidate (no résumé) — declared before '/:id'.
 router.post('/manual', protect, authorize('Admin', 'Recruiter'), createManualCandidate);
+
+// Backfill semantic-matching embeddings for existing candidates + jobs.
+router.post('/embeddings/backfill', protect, authorize('Admin'), backfillEmbeddings);
 
 // Upload resume & retrieve candidates
 router.route('/')

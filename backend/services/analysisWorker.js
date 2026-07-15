@@ -4,6 +4,7 @@ const SettingsRepo = require('../models/settingsRepo');
 const ParserService = require('./parserService');
 const AIService = require('./aiService');
 const StorageService = require('./storageService');
+const EmbeddingService = require('./embeddingService');
 
 // In-process background worker that drains the résumé-analysis queue. Uploads
 // enqueue a candidate with analysis_status='pending' and return instantly; this
@@ -47,6 +48,17 @@ async function processOne(row) {
       preservePhone: isApplication && Boolean(row.phone),
     });
     console.log('[worker] analyzed candidate', id);
+
+    // Best-effort semantic embedding for cross-role matching. NEVER allowed to
+    // fail the analysis: the candidate is already 'completed' above, and the
+    // recommendation engine falls back to keyword matching without an embedding.
+    try {
+      const cand = await CandidateRepo.findByIdApi(id);
+      const emb = cand && (await EmbeddingService.embedCandidate(cand));
+      if (emb) await CandidateRepo.setEmbedding(id, emb.vector, emb.model);
+    } catch (embErr) {
+      console.error('[worker] embedding skipped for', id, '-', embErr.message);
+    }
   } catch (err) {
     console.error('[worker] analysis failed for', id, '-', err.message);
     await CandidateRepo.failAnalysis(id, err.message || 'Analysis failed').catch(() => {});

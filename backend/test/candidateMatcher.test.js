@@ -1,7 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 
-const { scoreMatch, rankPool, bandFor, _requiredYears } = require('../services/candidateMatcher');
+const { scoreMatch, rankPool, bandFor, _requiredYears, cosineSimilarity, semanticScore, hybridScore } = require('../services/candidateMatcher');
 
 // --- Fixtures ---------------------------------------------------------------
 const developer = {
@@ -139,4 +139,66 @@ test('bandFor buckets scores', () => {
   assert.equal(bandFor(60), 'Good');
   assert.equal(bandFor(45), 'Possible');
   assert.equal(bandFor(20), 'Low');
+});
+
+// --- Semantic layer ---------------------------------------------------------
+test('cosineSimilarity: identical vectors = 1, orthogonal = 0, guards bad input', () => {
+  assert.equal(cosineSimilarity([1, 0, 0], [1, 0, 0]), 1);
+  assert.equal(cosineSimilarity([1, 0], [0, 1]), 0);
+  assert.ok(Math.abs(cosineSimilarity([1, 1], [2, 2]) - 1) < 1e-9); // same direction
+  assert.equal(cosineSimilarity([1, 2, 3], [1, 2]), null);   // length mismatch
+  assert.equal(cosineSimilarity([0, 0], [1, 1]), null);      // zero magnitude
+  assert.equal(cosineSimilarity(null, [1]), null);
+});
+
+test('semanticScore: needs both embeddings and a matching model tag', () => {
+  const cand = { embedding: [1, 0, 0], embeddingModel: 'nvidia:x' };
+  const job = { embedding: [1, 0, 0], embeddingModel: 'nvidia:x' };
+  assert.equal(semanticScore(cand, job).score, 100);
+  // Different model tags are never comparable.
+  assert.equal(semanticScore(cand, { embedding: [1, 0, 0], embeddingModel: 'openai:y' }), null);
+  // Missing embedding → no signal.
+  assert.equal(semanticScore({ embeddingModel: 'nvidia:x' }, job), null);
+});
+
+test('hybridScore: no weight or no embeddings = plain deterministic score', () => {
+  const cand = { skills: ['Sales'], experience: [], projects: [], aiAnalysis: {} };
+  const job = { title: 'Sales Lead', requiredSkills: ['Sales'], preferredSkills: [] };
+  const det = scoreMatch(cand, job);
+  // weight 0 → identical to deterministic
+  assert.equal(hybridScore(cand, job, 0).score, det.score);
+  // weight > 0 but candidate has no embedding → falls back, annotated semantic:false
+  const fb = hybridScore(cand, job, 0.5);
+  assert.equal(fb.score, det.score);
+  assert.equal(fb.semantic, false);
+});
+
+test('hybridScore: a low keyword score is LIFTED by strong semantic similarity', () => {
+  // No keyword overlap (job wants "Rust"; candidate lists "Sales"), but the
+  // embeddings are identical → semantic should surface this transferable fit.
+  const cand = {
+    skills: ['Sales'], experience: [], projects: [], aiAnalysis: {},
+    embedding: [1, 0, 0], embeddingModel: 'nvidia:x',
+  };
+  const job = { title: 'Rust Engineer', requiredSkills: ['Rust'], preferredSkills: [], embedding: [1, 0, 0], embeddingModel: 'nvidia:x' };
+  const det = scoreMatch(cand, job).score; // weak/zero keyword match
+  const h = hybridScore(cand, job, 0.4);
+  assert.equal(h.semantic, true);
+  assert.equal(h.semanticScore, 100);
+  assert.equal(h.deterministicScore, det);
+  assert.equal(h.score, Math.round(det * 0.6 + 100 * 0.4));
+  assert.ok(h.score > det); // genuinely lifted
+});
+
+test('hybridScore is upside-only: weak semantic NEVER demotes a strong keyword match', () => {
+  const cand = {
+    skills: ['Sales', 'Negotiation'], experience: [], projects: [], aiAnalysis: {},
+    embedding: [1, 0, 0], embeddingModel: 'nvidia:x',
+  };
+  const job = { title: 'Sales Lead', requiredSkills: ['Sales', 'Negotiation'], preferredSkills: [], embedding: [0.2, 0.98, 0], embeddingModel: 'nvidia:x' };
+  const det = scoreMatch(cand, job).score; // strong keyword match
+  const sem = semanticScore(cand, job).score; // weaker than det
+  assert.ok(sem < det);
+  const h = hybridScore(cand, job, 0.4);
+  assert.equal(h.score, det); // protected — stays at the deterministic score
 });

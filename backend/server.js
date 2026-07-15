@@ -87,6 +87,7 @@ app.use('/api/portal', require('./routes/portalRoutes'));
 app.use('/api/auth', require('./routes/authRoutes'));
 app.use('/api/jobs', require('./routes/jobRoutes'));
 app.use('/api/candidates', require('./routes/candidateRoutes'));
+app.use('/api/analytics', require('./routes/analyticsRoutes'));
 app.use('/api/applicants', require('./routes/applicantsRoutes'));
 app.use('/api/settings', require('./routes/settingsRoutes'));
 app.use('/api/notifications', require('./routes/notificationRoutes'));

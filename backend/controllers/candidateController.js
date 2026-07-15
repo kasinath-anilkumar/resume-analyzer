@@ -9,6 +9,11 @@ const EmailService = require('../services/emailService');
 const AuditRepo = require('../models/auditRepo');
 const ApplicantRepo = require('../models/applicantRepo');
 const CandidateMatcher = require('../services/candidateMatcher');
+const EmbeddingService = require('../services/embeddingService');
+
+// How strongly embedding similarity blends into the deterministic fit score when
+// semantic matching is available (0 = keyword-only, 1 = embedding-only).
+const SEMANTIC_WEIGHT = 0.4;
 
 // Resolve the AI provider/key configured through Settings so resume analysis
 // uses whatever key the admin pasted in the UI (auto-detected provider).
@@ -173,7 +178,42 @@ exports.getRecommendations = async (req, res) => {
     // The full pool, each with its applied job populated ({_id,title,department}).
     const pool = await CandidateRepo.listApi({});
     const minScore = Number.isFinite(+min) ? +min : 40;
-    const ranked = CandidateMatcher.rankPool(pool, job, { min: minScore });
+
+    // --- Semantic layer (optional, self-disabling) --------------------------
+    // Attach stored candidate embeddings + resolve the job's embedding (embedding
+    // it on-demand and caching it if this role has never been embedded). If the
+    // provider is unavailable or anything fails, semanticWeight stays 0 and the
+    // ranking is the exact keyword-only behaviour as before — zero regression.
+    let semanticWeight = 0;
+    let semanticActive = false;
+    try {
+      if (await EmbeddingService.isAvailable()) {
+        let jobEmb = await JobRepo.getEmbedding(job._id);
+        if (!jobEmb) {
+          const fresh = await EmbeddingService.embedJob(job);
+          if (fresh) {
+            await JobRepo.setEmbedding(job._id, fresh.vector, fresh.model);
+            jobEmb = { embedding: fresh.vector, embeddingModel: fresh.model };
+          }
+        }
+        if (jobEmb) {
+          job.embedding = jobEmb.embedding;
+          job.embeddingModel = jobEmb.embeddingModel;
+          const embMap = await CandidateRepo.embeddingsByIds(pool.map((c) => c._id));
+          pool.forEach((c) => {
+            const e = embMap[c._id];
+            if (e) { c.embedding = e.embedding; c.embeddingModel = e.embeddingModel; }
+          });
+          semanticWeight = SEMANTIC_WEIGHT;
+          semanticActive = true;
+        }
+      }
+    } catch (semErr) {
+      console.error('Semantic layer skipped:', semErr.message);
+      semanticWeight = 0;
+    }
+
+    const ranked = CandidateMatcher.rankPool(pool, job, { min: minScore, semanticWeight });
 
     // Lean payload for the list view.
     const data = ranked.map((c) => {
@@ -200,11 +240,59 @@ exports.getRecommendations = async (req, res) => {
       success: true,
       count: data.length,
       job: { _id: job._id, title: job.title },
+      semantic: semanticActive, // true when embedding similarity blended into scores
       data,
     });
   } catch (error) {
     console.error('Recommendations error:', error);
     return res.status(500).json({ success: false, message: 'Server error building recommendations' });
+  }
+};
+
+// @desc    Backfill embeddings for candidates + jobs that lack them, so semantic
+//          matching lights up for existing data (new rows get embedded live).
+// @route   POST /api/candidates/embeddings/backfill
+// @access  Private (Admin)
+exports.backfillEmbeddings = async (req, res) => {
+  try {
+    if (!(await EmbeddingService.isAvailable())) {
+      return res.status(400).json({
+        success: false,
+        message: 'Semantic matching is unavailable — configure an AI provider key in Settings first.',
+      });
+    }
+    const [cands, jobs] = await Promise.all([
+      CandidateRepo.listNeedingEmbedding(500),
+      JobRepo.listNeedingEmbedding(200),
+    ]);
+
+    let candidatesEmbedded = 0;
+    for (const c of cands) {
+      try {
+        const emb = await EmbeddingService.embedCandidate(c);
+        if (emb) { await CandidateRepo.setEmbedding(c._id, emb.vector, emb.model); candidatesEmbedded += 1; }
+      } catch (e) { console.error('backfill candidate failed', c._id, e.message); }
+    }
+    let jobsEmbedded = 0;
+    for (const j of jobs) {
+      try {
+        const emb = await EmbeddingService.embedJob(j);
+        if (emb) { await JobRepo.setEmbedding(j._id, emb.vector, emb.model); jobsEmbedded += 1; }
+      } catch (e) { console.error('backfill job failed', j._id, e.message); }
+    }
+
+    AuditRepo.log(req.user, 'embeddings.backfill', {
+      entityType: 'settings', summary: `Embedded ${candidatesEmbedded} candidate(s) + ${jobsEmbedded} job(s)`,
+    });
+    return res.json({
+      success: true,
+      message: `Semantic matching updated: embedded ${candidatesEmbedded} candidate(s) and ${jobsEmbedded} job(s).`,
+      candidatesEmbedded, jobsEmbedded,
+      candidatesRemaining: cands.length - candidatesEmbedded,
+    });
+  } catch (error) {
+    console.error('Backfill embeddings error:', error);
+    return res.status(500).json({ success: false, message: 'Server error backfilling embeddings' });
   }
 };
 

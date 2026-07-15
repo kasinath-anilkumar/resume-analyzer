@@ -373,6 +373,11 @@ const CandidateDetails = () => {
                 }`}>
                 Job Match: {candidate.aiAnalysis?.overallScore}%
               </span>
+              {candidate.withdrawnAt && (
+                <span title={`Withdrawn by the candidate on ${new Date(candidate.withdrawnAt).toLocaleString()}`} className="text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 bg-rose-500/10 text-rose-600 border border-rose-500/20 uppercase tracking-wide">
+                  Withdrawn by candidate
+                </span>
+              )}
             </div>
             <p className="text-xs text-slate-500 flex items-center gap-2 flex-wrap mt-0.5">
               <span>Candidate for <strong className="text-slate-700 dark:text-slate-300">{candidate.jobId?.title}</strong> ({candidate.jobId?.department})</span>

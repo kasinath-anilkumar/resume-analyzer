@@ -8,11 +8,12 @@ import { LogOut, LayoutGrid, Briefcase, User } from 'lucide-react';
 const PortalShell = ({ children, wide = false }) => {
   const { applicant, logout } = useApplicantAuth();
   const location = useLocation();
+  const isJobs = location.pathname.startsWith('/careers');
   const isDashboard = location.pathname.startsWith('/portal/dashboard') || location.pathname.startsWith('/portal/applications');
   const isProfile = location.pathname.startsWith('/portal/profile');
 
   return (
-    <div className={`min-h-screen bg-luxury-gradient text-[#1c1c1c] dark:text-[#f5efe9] font-luxury flex flex-col justify-between ${applicant ? 'pb-16 sm:pb-0' : ''}`}>
+    <div className="min-h-screen bg-luxury-gradient text-[#1c1c1c] dark:text-[#f5efe9] font-luxury flex flex-col justify-between">
       <div>
         <header className="border-b luxury-border-thin bg-white/40 dark:bg-black/20 backdrop-blur-sm sticky top-0 z-50">
           <div className={`${wide ? 'max-w-6xl' : 'max-w-5xl'} mx-auto px-5 py-4 flex items-center justify-between`}>
@@ -50,26 +51,44 @@ const PortalShell = ({ children, wide = false }) => {
             </div>
           </div>
         </header>
-        <div className={`${wide ? 'max-w-6xl' : 'max-w-5xl'} mx-auto px-5 py-5`}>{children}</div>
+        <div className={`${wide ? 'max-w-6xl' : 'max-w-5xl'} mx-auto px-5 pt-5 ${applicant ? 'pb-32 sm:pb-5' : 'pb-5'}`}>{children}</div>
       </div>
-      <footer className="text-center text-[9px] tracking-[0.2em] uppercase text-slate-400 dark:text-slate-600 border-t luxury-border-thin py-5 max-w-5xl mx-auto w-full">
+      <footer className={`text-center text-[9px] tracking-[0.2em] uppercase text-slate-400 dark:text-slate-600 border-t luxury-border-thin py-5 max-w-5xl mx-auto w-full ${applicant ? 'mb-28 sm:mb-0' : ''}`}>
         &copy; {new Date().getFullYear()} PARAKKAT JEWELS. All rights reserved.
       </footer>
 
       {/* Mobile Bottom Navigation Bar */}
       {applicant && (
-        <div className="fixed bottom-0 left-0 right-0 z-50 sm:hidden bg-white/95 dark:bg-[#151210]/95 backdrop-blur-md border-t luxury-border-thin flex justify-around py-2 shadow-[0_-4px_12px_rgba(0,0,0,0.05)]">
-          <Link to="/careers" className="flex flex-col items-center py-1.5 px-3 text-slate-400 hover:text-[#c5a880]">
-            <Briefcase size={16} />
-            <span className="text-[7.5px] font-bold tracking-widest uppercase mt-1">Jobs</span>
+        <div className="fixed bottom-5 left-0 right-0 mx-auto z-50 w-[92%] max-w-[380px] sm:hidden bg-white/35 dark:bg-black/35 backdrop-blur-xl rounded-full border border-white/20 dark:border-white/10 flex justify-around items-center py-2 px-2 shadow-[0_12px_40px_rgba(0,0,0,0.12)]">
+          <Link
+            to="/careers"
+            className={`flex items-center justify-center w-10 h-10 rounded-full transition-all duration-300 ease-out active:scale-90 ${
+              isJobs
+                ? 'bg-gradient-to-r from-[#c5a880]/20 to-[#c5a880]/10 dark:from-[#c5a880]/15 dark:to-transparent text-[#c5a880] border border-[#c5a880]/25 scale-105 shadow-[0_2px_12px_rgba(197,168,128,0.12)]'
+                : 'text-slate-400 dark:text-slate-500 hover:text-[#c5a880]/70 border border-transparent'
+            }`}
+          >
+            <Briefcase size={18} />
           </Link>
-          <Link to="/portal/dashboard" className={`flex flex-col items-center py-1.5 px-3 ${isDashboard ? 'text-[#c5a880]' : 'text-slate-400 hover:text-[#c5a880]'}`}>
-            <LayoutGrid size={16} />
-            <span className="text-[7.5px] font-bold tracking-widest uppercase mt-1">Dashboard</span>
+          <Link
+            to="/portal/dashboard"
+            className={`flex items-center justify-center w-10 h-10 rounded-full transition-all duration-300 ease-out active:scale-90 ${
+              isDashboard
+                ? 'bg-gradient-to-r from-[#c5a880]/20 to-[#c5a880]/10 dark:from-[#c5a880]/15 dark:to-transparent text-[#c5a880] border border-[#c5a880]/25 scale-105 shadow-[0_2px_12px_rgba(197,168,128,0.12)]'
+                : 'text-slate-400 dark:text-slate-500 hover:text-[#c5a880]/70 border border-transparent'
+            }`}
+          >
+            <LayoutGrid size={18} />
           </Link>
-          <Link to="/portal/profile" className={`flex flex-col items-center py-1.5 px-3 ${isProfile ? 'text-[#c5a880]' : 'text-slate-400 hover:text-[#c5a880]'}`}>
-            <User size={16} />
-            <span className="text-[7.5px] font-bold tracking-widest uppercase mt-1">Profile</span>
+          <Link
+            to="/portal/profile"
+            className={`flex items-center justify-center w-10 h-10 rounded-full transition-all duration-300 ease-out active:scale-90 ${
+              isProfile
+                ? 'bg-gradient-to-r from-[#c5a880]/20 to-[#c5a880]/10 dark:from-[#c5a880]/15 dark:to-transparent text-[#c5a880] border border-[#c5a880]/25 scale-105 shadow-[0_2px_12px_rgba(197,168,128,0.12)]'
+                : 'text-slate-400 dark:text-slate-500 hover:text-[#c5a880]/70 border border-transparent'
+            }`}
+          >
+            <User size={18} />
           </Link>
         </div>
       )}

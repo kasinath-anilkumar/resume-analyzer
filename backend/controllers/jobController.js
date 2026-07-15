@@ -4,6 +4,16 @@ const SettingsRepo = require('../models/settingsRepo');
 const ParserService = require('../services/parserService');
 const AIService = require('../services/aiService');
 const AuditRepo = require('../models/auditRepo');
+const EmbeddingService = require('../services/embeddingService');
+
+// Regenerate a job's semantic-matching embedding (best-effort, off the response
+// path). Called after create/update so recommendations reflect the latest role
+// text; failures are swallowed (recommendations fall back to keyword matching).
+const syncJobEmbedding = (job) => {
+  EmbeddingService.embedJob(job)
+    .then((emb) => emb && JobRepo.setEmbedding(job._id, emb.vector, emb.model))
+    .catch((e) => console.error('[job embedding] skipped for', job._id, '-', e.message));
+};
 
 // Resolve the AI provider/key configured through Settings (same as candidate
 // upload) so poster extraction uses whatever key the admin configured.
@@ -117,6 +127,7 @@ exports.createJob = async (req, res) => {
   try {
     const job = await JobRepo.create(req.body, req.user.id);
     AuditRepo.log(req.user, 'job.create', { entityType: 'job', entityId: job._id, summary: `Created job "${job.title}"` });
+    syncJobEmbedding(job);
     return res.status(201).json({ success: true, data: job });
   } catch (error) {
     console.error(error);
@@ -135,6 +146,7 @@ exports.updateJob = async (req, res) => {
     }
     const job = await JobRepo.update(req.params.id, req.body);
     AuditRepo.log(req.user, 'job.update', { entityType: 'job', entityId: req.params.id, summary: `Updated job "${job.title}"` });
+    syncJobEmbedding(job); // role text may have changed → refresh the embedding
     return res.json({ success: true, data: job });
   } catch (error) {
     console.error(error);

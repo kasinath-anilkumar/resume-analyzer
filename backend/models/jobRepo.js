@@ -158,6 +158,41 @@ const JobRepo = {
     return count || 0;
   },
 
+  // --- Semantic matching embeddings ----------------------------------------
+  // Kept off toApi so job lists (incl. the public careers page) never carry the
+  // 1k-float vectors.
+  async setEmbedding(id, vector, modelTag) {
+    const { error } = await getClient()
+      .from(TABLE)
+      .update({ embedding: vector || null, embedding_model: modelTag || null })
+      .eq('id', id);
+    if (error) throw error;
+    return true;
+  },
+
+  async getEmbedding(id) {
+    const { data, error } = await getClient()
+      .from(TABLE)
+      .select('embedding, embedding_model')
+      .eq('id', id)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data || !data.embedding) return null;
+    return { embedding: data.embedding, embeddingModel: data.embedding_model || null };
+  },
+
+  // Non-archived jobs still lacking an embedding (for the backfill sweep).
+  async listNeedingEmbedding(limit = 100) {
+    const { data, error } = await getClient()
+      .from(TABLE)
+      .select('*')
+      .neq('status', 'Archived')
+      .is('embedding', null)
+      .limit(limit);
+    if (error) throw error;
+    return (data || []).map(toApi);
+  },
+
   // --- Public (careers page) — Active jobs only, safe fields ---------------
   toPublic(row) {
     const j = toApi(row);

@@ -29,6 +29,7 @@ const toApi = (row) =>
     analysisError: row.analysis_error || '',
     quizResult: row.quiz_result && typeof row.quiz_result === 'object' ? row.quiz_result : {},
     consentAt: row.consent_at || null,
+    withdrawnAt: row.withdrawn_at || null,
     deletedAt: row.deleted_at || null,
     jobId: row.job_id, // replaced with a populated object where noted
     aiAnalysis: row.ai_analysis || {},
@@ -432,6 +433,29 @@ const CandidateRepo = {
     return c;
   },
 
+  // Applicant self-withdrawal, strictly scoped to their own email. Marks
+  // withdrawn_at + closes the row (status 'Rejected') so it exits the active
+  // recruiter pipeline. Refuses if the application is already Hired, already
+  // withdrawn, or doesn't belong to this applicant. Returns the updated row
+  // (toApi) or null when not withdrawable.
+  async withdrawForApplicant(id, email) {
+    const e = String(email || '').toLowerCase();
+    const { data: existing, error: findErr } = await getClient()
+      .from(TABLE).select('*').eq('id', id).is('deleted_at', null).maybeSingle();
+    if (findErr) throw findErr;
+    if (!existing || String(existing.email || '').toLowerCase() !== e) return null;
+    if (existing.withdrawn_at || existing.status === 'Hired' || existing.status === 'Rejected') return null;
+
+    const { data, error } = await getClient()
+      .from(TABLE)
+      .update({ withdrawn_at: new Date().toISOString(), status: 'Rejected', updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .select('*')
+      .maybeSingle();
+    if (error) throw error;
+    return toApi(data);
+  },
+
   // Has this email already applied to this job? Used to block duplicate public
   // applications to the same role.
   async existsForJobEmail(jobId, email) {
@@ -560,6 +584,30 @@ const CandidateRepo = {
     }));
   },
 
+  // Richer projection for the recruiter analytics page (adds source, AI verdict,
+  // seniority, quiz score). Kept separate from allForStats so the existing
+  // dashboard payload is untouched.
+  async allForAnalytics() {
+    const { data, error } = await getClient()
+      .from(TABLE)
+      .select('id, job_id, status, source, ai_analysis, quiz_result, analysis_status, created_at, updated_at')
+      .is('deleted_at', null);
+    if (error) throw error;
+    return (data || []).map((r) => ({
+      _id: r.id,
+      jobId: r.job_id,
+      status: r.status,
+      source: r.source || 'Manual',
+      overallScore: r.ai_analysis?.overallScore || 0,
+      screeningVerdict: r.ai_analysis?.screeningVerdict || null,
+      seniorityLevel: r.ai_analysis?.seniorityLevel || null,
+      quizScore: (r.quiz_result && typeof r.quiz_result.score === 'number') ? r.quiz_result.score : null,
+      analysisStatus: r.analysis_status || 'completed',
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+    }));
+  },
+
   async count() {
     const { count, error } = await getClient()
       .from(TABLE)
@@ -567,6 +615,48 @@ const CandidateRepo = {
       .is('deleted_at', null);
     if (error) throw error;
     return count || 0;
+  },
+
+  // --- Semantic matching embeddings ----------------------------------------
+  // Persist a candidate's embedding (JSON float array) + the model tag that
+  // produced it. Best-effort — callers swallow errors so embedding never blocks.
+  async setEmbedding(id, vector, modelTag) {
+    const { error } = await getClient()
+      .from(TABLE)
+      .update({ embedding: vector || null, embedding_model: modelTag || null })
+      .eq('id', id);
+    if (error) throw error;
+    return true;
+  },
+
+  // Fetch embeddings for a set of candidate ids → { [id]: { embedding, embeddingModel } }.
+  // Kept out of toApi so the 1k-float vectors never bloat normal candidate reads.
+  async embeddingsByIds(ids) {
+    const list = [...new Set((ids || []).map(String))].filter(Boolean);
+    if (!list.length) return {};
+    const { data, error } = await getClient()
+      .from(TABLE)
+      .select('id, embedding, embedding_model')
+      .in('id', list);
+    if (error) throw error;
+    const map = {};
+    (data || []).forEach((r) => {
+      if (r.embedding) map[r.id] = { embedding: r.embedding, embeddingModel: r.embedding_model || null };
+    });
+    return map;
+  },
+
+  // Analysed candidates that still lack an embedding (for the backfill sweep).
+  async listNeedingEmbedding(limit = 200) {
+    const { data, error } = await getClient()
+      .from(TABLE)
+      .select('*')
+      .is('deleted_at', null)
+      .is('embedding', null)
+      .eq('analysis_status', 'completed')
+      .limit(limit);
+    if (error) throw error;
+    return (data || []).map(toApi);
   },
 
   // GDPR retention: delete candidates older than `days` (by created_at), EXCEPT

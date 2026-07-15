@@ -48,11 +48,15 @@ exports.getApplicantDetails = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Portal user not found' });
     }
 
-    // Query candidates table for applications submitted under this account's email
+    // Query candidates table for applications submitted under this account's email.
+    // Case-insensitive (ilike) to match the rest of candidateRepo — recruiter
+    // résumé uploads store the AI-parsed email verbatim, so casing can differ from
+    // the (lowercased) portal account email. Exact-match here would silently drop
+    // those applications and disagree with the list view's lowercased count.
     const { data: apps, error: appsErr } = await getClient()
       .from('candidates')
       .select('id, job_id, status, created_at, ai_analysis')
-      .eq('email', applicant.email)
+      .ilike('email', String(applicant.email || '').toLowerCase())
       .is('deleted_at', null);
 
     if (appsErr) throw appsErr;

@@ -33,7 +33,8 @@ import {
   UserCog,
   UserCheck,
   Sparkles,
-  ScrollText
+  ScrollText,
+  BarChart3
 } from 'lucide-react';
 
 const DashboardLayout = () => {
@@ -91,6 +92,7 @@ const DashboardLayout = () => {
 
   const navItems = [
     { name: 'Dashboard', path: '/', icon: LayoutDashboard, roles: ['Admin', 'Recruiter', 'Hiring Manager'] },
+    { name: 'Analytics', path: '/analytics', icon: BarChart3, roles: ['Admin', 'Recruiter', 'Hiring Manager'] },
     { name: 'Job Openings', path: '/jobs', icon: Briefcase, roles: ['Admin', 'Recruiter', 'Hiring Manager'] },
     { name: 'Upload & Analyze', path: '/upload', icon: UploadCloud, roles: ['Admin', 'Recruiter'] },
     { name: 'Candidates', path: '/candidates', icon: Users, roles: ['Admin', 'Recruiter', 'Hiring Manager'] },
