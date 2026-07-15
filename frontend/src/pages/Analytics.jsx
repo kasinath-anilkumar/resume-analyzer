@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import api from '../services/api';
+import { useLiveRefresh } from '../hooks/useLiveRefresh';
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   Legend, PieChart, Pie, Cell, AreaChart, Area,
@@ -38,6 +39,9 @@ const Analytics = () => {
   }, []);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+  // Live-refresh on tab focus + every 30s (cheap — analytics is server-cached; a
+  // manual "Refresh" still forces a fresh recompute via ?fresh=1).
+  useLiveRefresh(() => fetchData(false), { pollMs: 30000 });
 
   if (loading) return <AnalyticsSkeleton />;
 

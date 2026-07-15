@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import { useLiveRefresh } from '../hooks/useLiveRefresh';
 import { Briefcase, ChevronRight, User, AlertCircle, Loader2, Search } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
@@ -49,28 +50,35 @@ const Pipeline = () => {
     fetchJobs();
   }, []);
 
-  const fetchCandidates = async () => {
+  const fetchCandidates = async (silent = false) => {
     if (!selectedJobId) {
       setLoading(false);
       return;
     }
     try {
-      setLoading(true);
-      const res = await api.get(`/candidates?jobId=${selectedJobId}`);
+      if (!silent) setLoading(true);
+      // The board groups a job's whole pool by stage, so pull a large page (the
+      // list endpoint is paginated — the default 25 would hide most candidates).
+      const res = await api.get(`/candidates?jobId=${selectedJobId}&pageSize=500`);
       if (res.data.success) {
         setCandidates(res.data.data);
       }
     } catch (err) {
       console.error(err);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
   useEffect(() => {
     fetchCandidates();
     setPage(1); // Reset page on job select
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedJobId]);
+
+  // Live: silently re-fetch on tab focus + every 20s so stage moves / new
+  // candidates (incl. other recruiters' changes) show up without a manual refresh.
+  useLiveRefresh(() => fetchCandidates(true), { pollMs: 20000, enabled: !!selectedJobId });
 
   const handleStageChange = async (candidateId, targetStage) => {
     if (!isHR) return;

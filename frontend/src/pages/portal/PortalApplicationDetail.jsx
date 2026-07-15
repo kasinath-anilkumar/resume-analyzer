@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import portalApi from '../../services/portalApi';
+import { useLiveRefresh } from '../../hooks/useLiveRefresh';
 import PortalShell, { statusPill } from './PortalShell';
 import {
   Loader2, ChevronLeft, MapPin, Clock, Briefcase, Calendar,
@@ -17,12 +18,19 @@ const PortalApplicationDetail = () => {
   const [withdrawing, setWithdrawing] = useState(false);
   const [withdrawErr, setWithdrawErr] = useState('');
 
-  useEffect(() => {
-    portalApi.get(`/applications/${id}`)
+  const fetchApp = useCallback((silent = false) => {
+    if (!silent) setLoading(true);
+    return portalApi.get(`/applications/${id}`)
       .then((res) => { if (res.data.success) setApp(res.data.data); else setNotFound(true); })
       .catch(() => setNotFound(true))
       .finally(() => setLoading(false));
   }, [id]);
+
+  useEffect(() => { fetchApp(); }, [fetchApp]);
+
+  // Live: reflect stage moves / newly-scheduled interviews the team makes.
+  // Stop once we've resolved to "not found" so we don't poll a dead id.
+  useLiveRefresh(() => fetchApp(true), { pollMs: 30000, enabled: !notFound });
 
   const withdraw = async () => {
     if (!window.confirm('Withdraw this application? This tells the hiring team you are no longer interested and cannot be undone.')) return;
@@ -31,8 +39,7 @@ const PortalApplicationDetail = () => {
     try {
       await portalApi.post(`/applications/${id}/withdraw`);
       // Re-fetch so the status, timeline, and interview list all reflect it.
-      const res = await portalApi.get(`/applications/${id}`);
-      if (res.data.success) setApp(res.data.data);
+      await fetchApp(true);
     } catch (err) {
       setWithdrawErr(err.response?.data?.message || 'Could not withdraw this application. Please try again.');
     } finally {

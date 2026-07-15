@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import api from '../services/api';
+import { useLiveRefresh } from '../hooks/useLiveRefresh';
 import {
   ResponsiveContainer,
   BarChart,
@@ -34,21 +35,20 @@ const Dashboard = () => {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const fetchStats = async () => {
-      try {
-        const res = await api.get('/candidates/dashboard/stats');
-        if (res.data.success) {
-          setStats(res.data.data);
-        }
-      } catch (err) {
-        console.error('Error fetching dashboard stats', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchStats();
+  const fetchStats = useCallback(async () => {
+    try {
+      const res = await api.get('/candidates/dashboard/stats');
+      if (res.data.success) setStats(res.data.data);
+    } catch (err) {
+      console.error('Error fetching dashboard stats', err);
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => { fetchStats(); }, [fetchStats]);
+  // Live-refresh on tab focus + every 30s (cheap — the endpoint is server-cached).
+  useLiveRefresh(fetchStats, { pollMs: 30000 });
 
   if (loading) {
     return <DashboardSkeleton />;

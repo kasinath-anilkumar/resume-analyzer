@@ -3,6 +3,7 @@ import api from '../services/api';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { coordsFor, haversineKm } from '../data/cities';
+import { useLiveRefresh } from '../hooks/useLiveRefresh';
 import {
   Search,
   Filter,
@@ -98,15 +99,12 @@ const Candidates = () => {
     }
   };
 
-  // While any candidate is still being analyzed, silently refresh so scores
-  // appear as the background worker finishes.
-  useEffect(() => {
-    const anyPending = candidates.some((c) => ['pending', 'processing'].includes(c.analysisStatus));
-    if (!anyPending) return undefined;
-    const t = setTimeout(() => fetchCandidates(true), 4000);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [candidates]);
+  // Live updates: silently re-fetch on tab focus + on a light interval — fast
+  // (4s) while a candidate is still being analyzed so scores appear as the worker
+  // finishes, then relaxed (20s) so new applications / others' changes still show
+  // up without a manual refresh. Polling pauses when the tab is hidden.
+  const anyPending = candidates.some((c) => ['pending', 'processing'].includes(c.analysisStatus));
+  useLiveRefresh(() => fetchCandidates(true), { pollMs: anyPending ? 4000 : 20000 });
 
   // Any filter change resets to page 1 (so you don't land on an out-of-range page).
   useEffect(() => {

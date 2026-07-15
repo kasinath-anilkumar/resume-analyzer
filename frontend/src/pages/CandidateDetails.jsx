@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import api, { API_ORIGIN } from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import { useLiveRefresh } from '../hooks/useLiveRefresh';
 import {
   User,
   Mail,
@@ -165,12 +166,18 @@ const CandidateDetails = () => {
   }, [id]);
 
   // Poll while the background worker is still analyzing this candidate.
+  const isAnalyzing = candidate && ['pending', 'processing'].includes(candidate.analysisStatus);
   useEffect(() => {
-    if (!candidate || !['pending', 'processing'].includes(candidate.analysisStatus)) return undefined;
+    if (!isAnalyzing) return undefined;
     const t = setTimeout(() => fetchCandidate(true), 4000);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [candidate]);
+
+  // Live: refresh on tab focus + a light poll so stage moves / notes another
+  // recruiter makes on this candidate appear here. While analyzing, the 4s poll
+  // above owns it (pollMs 0 = focus-refresh only, no duplicate interval).
+  useLiveRefresh(() => fetchCandidate(true), { pollMs: isAnalyzing ? 0 : 20000 });
 
   // Load active jobs for the "move to job" control (HR only).
   useEffect(() => {

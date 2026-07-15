@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import portalApi from '../../services/portalApi';
 import { useApplicantAuth } from '../../context/ApplicantAuthContext';
+import { useLiveRefresh } from '../../hooks/useLiveRefresh';
 import PortalShell, { statusPill } from './PortalShell';
 import { Loader2, Briefcase, MapPin, Calendar, ChevronRight, CalendarClock, Sparkles, User, ExternalLink } from 'lucide-react';
 
@@ -12,12 +13,19 @@ const PortalDashboard = () => {
   const [apps, setApps] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    portalApi.get('/applications')
+  const fetchApps = useCallback((silent = false) => {
+    if (!silent) setLoading(true);
+    return portalApi.get('/applications')
       .then((res) => { if (res.data.success) setApps(res.data.data); })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => { fetchApps(); }, [fetchApps]);
+
+  // Live: pick up stage moves / new interviews the team schedules, without a
+  // manual refresh — silent so the spinner never flashes over existing data.
+  useLiveRefresh(() => fetchApps(true), { pollMs: 30000 });
 
   // Compute key metrics
   const totalApps = apps.length;
