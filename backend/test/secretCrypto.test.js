@@ -64,3 +64,31 @@ test('each encryption uses a fresh IV so ciphertexts differ', () => {
   assert.equal(decrypt(a), 'same-value');
   assert.equal(decrypt(b), 'same-value');
 });
+
+test('KEY ROTATION: a JWT_SECRET-encrypted value survives introducing a distinct SETTINGS_ENC_KEY', () => {
+  const { needsReencrypt, _resetKeyCache } = require('../utils/secretCrypto');
+  const savedEnc = process.env.SETTINGS_ENC_KEY;
+  const savedJwt = process.env.JWT_SECRET;
+
+  // OLD world: only JWT_SECRET (no dedicated SETTINGS_ENC_KEY).
+  delete process.env.SETTINGS_ENC_KEY;
+  process.env.JWT_SECRET = 'legacy-jwt-secret';
+  _resetKeyCache();
+  const legacyCipher = encrypt('nvapi-secret'); // encrypted under JWT_SECRET
+  assert.equal(decrypt(legacyCipher), 'nvapi-secret');
+
+  // Rotate in a DISTINCT SETTINGS_ENC_KEY.
+  process.env.SETTINGS_ENC_KEY = 'brand-new-distinct-enc-key';
+  _resetKeyCache();
+  assert.equal(decrypt(legacyCipher), 'nvapi-secret'); // still decrypts via legacy fallback
+  assert.equal(needsReencrypt(legacyCipher), true);    // flagged to upgrade
+
+  const upgraded = encrypt('nvapi-secret');            // now under the active key
+  assert.equal(decrypt(upgraded), 'nvapi-secret');
+  assert.equal(needsReencrypt(upgraded), false);
+
+  // Restore for isolation.
+  if (savedEnc === undefined) delete process.env.SETTINGS_ENC_KEY; else process.env.SETTINGS_ENC_KEY = savedEnc;
+  if (savedJwt === undefined) delete process.env.JWT_SECRET; else process.env.JWT_SECRET = savedJwt;
+  _resetKeyCache();
+});

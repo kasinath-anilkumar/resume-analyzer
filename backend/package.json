@@ -8,6 +8,7 @@
     "dev": "nodemon server.js",
     "db:migrate": "node scripts/migrate.js",
     "seed:admin": "node scripts/seedAdmin.js",
+    "reencrypt-secrets": "node scripts/reencryptSecrets.js",
     "test": "node --test"
   },
   "keywords": [],
