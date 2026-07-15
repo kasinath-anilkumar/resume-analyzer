@@ -22,8 +22,15 @@ process.on('uncaughtException', (err) => {
 const { isConfigured } = require('./config/supabase');
 if (isConfigured()) {
   console.log('Supabase data layer configured.');
-  // Start the background résumé-analysis worker (drains the pending queue).
-  require('./services/analysisWorker').start().catch((e) => console.error('Worker start failed:', e.message));
+  // Start the background résumé-analysis worker IN-PROCESS unless RUN_WORKER=false.
+  // At scale, run the worker as a SEPARATE service (`npm run worker`) and set
+  // RUN_WORKER=false here so OCR/AI spikes don't compete with web requests — and
+  // so the queue isn't drained by two places at once.
+  if (String(process.env.RUN_WORKER).toLowerCase() !== 'false') {
+    require('./services/analysisWorker').start().catch((e) => console.error('Worker start failed:', e.message));
+  } else {
+    console.log('[worker] in-process worker disabled (RUN_WORKER=false) — expecting a separate worker service.');
+  }
 } else {
   console.warn('WARNING: Supabase is not configured — set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in backend/.env.');
 }
