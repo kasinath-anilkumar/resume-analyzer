@@ -123,3 +123,4 @@ function distanceKm(a, b) {
 }
 
 module.exports = { geocodeOne, peek, warm, distanceKm, __setGeocoder };
+

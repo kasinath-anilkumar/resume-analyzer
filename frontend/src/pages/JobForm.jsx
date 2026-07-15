@@ -3,7 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { usePosterExtraction } from '../context/PosterExtractionContext';
-import { CITY_SUGGESTIONS } from '../data/cities';
+import LocationSearchInput from '../components/LocationSearchInput';
 import { ChevronLeft, Loader2, AlertCircle, Sparkles, UploadCloud, CheckCircle2, X, Plus, Trash2, ClipboardList } from 'lucide-react';
 
 const emptyForm = {
@@ -309,18 +309,12 @@ const JobForm = () => {
         <div className="grid grid-cols-2 sm:grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-1">
             <label className={labelClass}>Location</label>
-            <input
-              required
-              name="location"
-              list="job-city-suggestions"
+            <LocationSearchInput
               value={formData.location}
-              onChange={handleInputChange}
+              onChange={(val) => setFormData((f) => ({ ...f, location: val }))}
               placeholder="Start typing a city…"
               className={selectClass}
             />
-            <datalist id="job-city-suggestions">
-              {CITY_SUGGESTIONS.map((c) => <option key={c} value={c} />)}
-            </datalist>
           </div>
           <div className="space-y-1">
             <label className={labelClass}>Employment Type</label>

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import api from '../services/api';
 import safeUrl from '../utils/safeUrl';
+import LocationSearchInput from '../components/LocationSearchInput';
 import { useAuth } from '../context/AuthContext';
 import {
   ChevronLeft,
@@ -453,13 +454,13 @@ const ApplicantDetail = () => {
                       placeholder="e.g. +917736807013"
                     />
                   </div>
-                  <div className="space-y-1">
+                   <div className="space-y-1">
                     <label className={labelStyle}>Current Location</label>
-                    <input
+                    <LocationSearchInput
                       value={form.location}
-                      onChange={(e) => setForm((f) => ({ ...f, location: e.target.value }))}
-                      className={fieldStyle}
+                      onChange={(val) => setForm((f) => ({ ...f, location: val }))}
                       placeholder="e.g. Bangalore, India"
+                      className={fieldStyle}
                     />
                   </div>
                   <div className="space-y-1">

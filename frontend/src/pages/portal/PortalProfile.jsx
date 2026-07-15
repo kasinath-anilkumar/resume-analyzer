@@ -4,7 +4,7 @@ import { useApplicantAuth } from '../../context/ApplicantAuthContext';
 import portalApi from '../../services/portalApi';
 import PhoneInput, { isValidPhoneNumber } from 'react-phone-number-input';
 import PortalShell, { luxuryInput, luxuryBtn } from './PortalShell';
-import { CITY_SUGGESTIONS } from '../../data/cities';
+import LocationSearchInput from '../../components/LocationSearchInput';
 import {
   ChevronLeft, User, Mail, Phone, Link2, CheckCircle2, Lock,
   Settings, Globe, Shield, UploadCloud, FileText, Trash2, Loader2, MapPin
@@ -389,17 +389,12 @@ const PortalProfile = () => {
                   <label className="text-[9px] font-semibold tracking-widest text-slate-400 uppercase">Current Location</label>
                   <div className="relative">
                     <MapPin size={14} className="absolute left-3.5 top-3.5 text-[#c5a880] z-10" />
-                    <input
-                      type="text"
-                      list="profile-city-suggestions"
+                    <LocationSearchInput
                       value={location}
-                      onChange={(e) => setLocation(e.target.value)}
+                      onChange={(val) => setLocation(val)}
                       placeholder="Start typing your city…"
                       className="w-full h-11 pl-10 pr-4 border text-xs tracking-wide luxury-input focus:outline-none"
                     />
-                    <datalist id="profile-city-suggestions">
-                      {CITY_SUGGESTIONS.map((c) => <option key={c} value={c} />)}
-                    </datalist>
                   </div>
                 </div>
 
