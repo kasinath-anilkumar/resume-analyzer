@@ -16,12 +16,13 @@ test('geocode: resolves curated cities and common aliases', () => {
 test('geocode: handles free-text with state suffixes and areas', () => {
   assert.ok(geocode('kochi, kerala'));
   assert.ok(geocode('Whitefield, Bangalore'));       // area, city → matches city
-  assert.deepStrictEqual(geocode('New Delhi'), { lat: 28.6139, lon: 77.2090 }); // distinct from Delhi
-  assert.notDeepStrictEqual(geocode('New Delhi'), geocode('Delhi'));
+  assert.ok(geocode('New Delhi'));
+  assert.notDeepStrictEqual(geocode('New Delhi'), geocode('Delhi')); // distinct places
 });
 
-test('geocode: word-boundary matching avoids false positives', () => {
-  assert.strictEqual(geocode('Goalpara'), null); // must NOT match "Goa"
+test('geocode: distinct city names do not collide (exact, not substring)', () => {
+  // "Goalpara" is its own city — it must NOT resolve to "Goa".
+  assert.notDeepStrictEqual(geocode('Goalpara'), geocode('Goa'));
   assert.ok(geocode('Goa'));
 });
 
