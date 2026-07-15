@@ -172,18 +172,9 @@ exports.apply = async (req, res) => {
       }
     } catch (_) { /* ignore malformed answers */ }
 
-    // 2b) Require every screening question to be answered (server-side — the
-    //     form can be bypassed). Match by the question text the form submitted.
-    if (Array.isArray(job.screeningQuestions) && job.screeningQuestions.length) {
-      const answered = new Set(
-        screeningAnswers.filter((a) => a.answer && String(a.answer).trim()).map((a) => a.question)
-      );
-      if (!job.screeningQuestions.every((q) => answered.has(q))) {
-        return res.status(400).json({ success: false, message: 'Please answer all the screening questions before submitting.' });
-      }
-    }
-
-    // 2c) Parse + validate the quiz, then score it (MCQ auto-graded server-side).
+    // 2b) Parse + validate the quiz, then score it (MCQ auto-graded server-side).
+    //     Screening answers stay OPTIONAL ("Additional Screening"); the quiz is
+    //     the mandatory gate.
     let quizResult = {};
     if (job.quiz && Array.isArray(job.quiz.questions) && job.quiz.questions.length) {
       let quizAnswers = [];

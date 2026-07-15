@@ -274,17 +274,19 @@ const CareerApply = () => {
     const reuseSaved = usePrimaryResume && hasPrimaryResume && !file;
     if (!enterDetailsManually && !file && !reuseSaved) { setError('Please attach your résumé.'); return; }
 
-    // Every screening question must be answered before submitting.
-    if (answers.length && answers.some((a) => !a.answer.trim())) {
-      setError('Please answer all the screening questions before submitting.'); return;
-    }
-    // Every quiz question must be answered — unless the timer already ran out.
+    // The screening ("Additional Screening") section is optional. The QUIZ,
+    // however, must be fully answered — unless its timer already ran out. Point
+    // the applicant at the exact blank question and jump to the quiz step.
     if (hasQuiz && !quizLocked) {
-      const unanswered = job.quiz.questions.some((q) => {
+      const blankQuiz = job.quiz.questions.findIndex((q) => {
         const v = quizAnswers[q.id];
         return v === undefined || v === null || (typeof v === 'string' && !v.trim());
       });
-      if (unanswered) { setError('Please answer all the quiz questions before submitting.'); return; }
+      if (blankQuiz !== -1) {
+        setCurrentStep(3);
+        setError(`Please answer all quiz questions — question ${blankQuiz + 1} is unanswered.`);
+        return;
+      }
     }
 
     const fd = new FormData();
