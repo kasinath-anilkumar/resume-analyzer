@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import api from '../services/api';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { coordsFor, haversineKm } from '../data/cities';
 import { useLiveRefresh } from '../hooks/useLiveRefresh';
 import {
   Search,
@@ -47,8 +46,13 @@ const Candidates = () => {
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0); // total matches across all pages (from server)
   const [distanceSort, setDistanceSort] = useState(''); // '' | 'nearest' | 'farthest'
+  const [radiusKm, setRadiusKm] = useState('');         // '' | '25' | '50' | '100' | '250'
+  const [distanceInfo, setDistanceInfo] = useState(null); // { available, reason?, reference?, capped? }
   const [salarySort, setSalarySort] = useState('');     // '' | 'high' | 'low'
   const [showFilters, setShowFilters] = useState(false);
+  // Distance sorting is server-side and measured from the SELECTED job's
+  // location, so it needs a job selected.
+  const distanceActive = Boolean(distanceSort && selectedJobId);
 
   // UI state
   const [selectedCandidateIds, setSelectedCandidateIds] = useState([]);
@@ -82,15 +86,23 @@ const Candidates = () => {
       if (minScore) queryParams.append('minScore', minScore);
       if (selectedSkill) queryParams.append('skill', selectedSkill);
       if (selectedVerdict) queryParams.append('verdict', selectedVerdict);
+      // Distance sort/radius are server-side (measured from the selected job's
+      // location, ranked across the WHOLE matching set — not just this page).
+      if (distanceSort && selectedJobId) {
+        queryParams.append('sort', distanceSort === 'nearest' ? 'distance_nearest' : 'distance_farthest');
+        if (radiusKm) queryParams.append('radiusKm', radiusKm);
+      }
       queryParams.append('page', String(page));
       queryParams.append('pageSize', String(PAGE_SIZE));
 
       const res = await api.get(`/candidates?${queryParams.toString()}`);
       if (res.data.success) {
-        // The server already returns this page ordered best-first (highest AI
-        // score). No client-side re-sort — that would only reorder within a page.
+        // The server returns this page already ordered (best-AI-score by default,
+        // or by distance when a distance sort is active). No client-side re-sort —
+        // that would only reorder within a page.
         setCandidates(res.data.data);
         setTotal(res.data.total ?? res.data.data.length);
+        setDistanceInfo(res.data.distance || null);
       }
     } catch (err) {
       console.error('Error fetching candidates', err);
@@ -110,13 +122,13 @@ const Candidates = () => {
   useEffect(() => {
     setPage(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, selectedJobId, selectedStatus, minScore, selectedSkill, selectedVerdict]);
+  }, [search, selectedJobId, selectedStatus, minScore, selectedSkill, selectedVerdict, distanceSort, radiusKm]);
 
-  // Fetch whenever the page or any (server-side) filter changes.
+  // Fetch whenever the page or any (server-side) filter/sort changes.
   useEffect(() => {
     fetchCandidates();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, search, selectedJobId, selectedStatus, minScore, selectedSkill, selectedVerdict]);
+  }, [page, search, selectedJobId, selectedStatus, minScore, selectedSkill, selectedVerdict, distanceSort, radiusKm]);
 
   const toggleSelectCandidate = (id) => {
     setSelectedCandidateIds((prev) =>
@@ -164,21 +176,12 @@ const Candidates = () => {
     return m ? parseInt(m[0], 10) : null;
   };
 
-  // Verdict filtering is now applied server-side (see fetchCandidates). The
-  // distance/salary sorts below still operate on the current page only.
+  // Verdict + distance filtering/sorting are applied SERVER-SIDE across the whole
+  // matching set (see fetchCandidates + distanceKm on each row). The salary sort
+  // below still operates on the current page only.
   const displayed = candidates;
 
-  // Sorting. "Nearest" measures each candidate's location against the SELECTED
-  // job's location (needs a job selected + known coordinates on both sides).
-  const refCoords = coordsFor(jobs.find((j) => j._id === selectedJobId)?.location);
-  const withMeta = displayed.map((c) => {
-    const cc = coordsFor(c.currentLocation);
-    return {
-      ...c,
-      distanceKm: refCoords && cc ? haversineKm(refCoords, cc) : null,
-      salaryNum: parseSalary(c.salaryExpectation),
-    };
-  });
+  const withMeta = displayed.map((c) => ({ ...c, salaryNum: parseSalary(c.salaryExpectation) }));
   const nullsLast = (a, b, key, dir) => {
     if (a[key] == null && b[key] == null) return 0;
     if (a[key] == null) return 1; // unknown → always last
@@ -186,10 +189,10 @@ const Candidates = () => {
     return dir === 'asc' ? a[key] - b[key] : b[key] - a[key];
   };
   const sorted = [...withMeta];
-  if (distanceSort === 'nearest') sorted.sort((a, b) => nullsLast(a, b, 'distanceKm', 'asc'));
-  else if (distanceSort === 'farthest') sorted.sort((a, b) => nullsLast(a, b, 'distanceKm', 'desc'));
-  else if (salarySort === 'high') sorted.sort((a, b) => nullsLast(a, b, 'salaryNum', 'desc'));
-  else if (salarySort === 'low') sorted.sort((a, b) => nullsLast(a, b, 'salaryNum', 'asc'));
+  // Distance ordering is done by the server; only the (page-local) salary sort
+  // runs here, and only when a distance sort isn't active.
+  if (!distanceActive && salarySort === 'high') sorted.sort((a, b) => nullsLast(a, b, 'salaryNum', 'desc'));
+  else if (!distanceActive && salarySort === 'low') sorted.sort((a, b) => nullsLast(a, b, 'salaryNum', 'asc'));
 
   // Colour for the AI verdict badge.
   const verdictBadge = (v) => {
@@ -412,17 +415,36 @@ const Candidates = () => {
             </select>
           </div>
 
-          {/* Distance sort (relative to the selected job's location) */}
+          {/* Distance sort (from the SELECTED job's location — server-side, whole set) */}
           <div>
             <select
               value={distanceSort}
               onChange={(e) => { setDistanceSort(e.target.value); if (e.target.value) setSalarySort(''); }}
+              disabled={!selectedJobId}
               title={!selectedJobId ? 'Select a job opening to sort by distance from its location' : 'Sort by distance from the selected job'}
-              className="w-full h-10 px-3 border border-slate-200 dark:border-darkBorder rounded-xl bg-white dark:bg-slate-900 text-xs text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500"
+              className="w-full h-10 px-3 border border-slate-200 dark:border-darkBorder rounded-xl bg-white dark:bg-slate-900 text-xs text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <option value="">Distance</option>
+              <option value="">{selectedJobId ? 'Distance' : 'Distance (pick a job)'}</option>
               <option value="nearest">Nearest first</option>
               <option value="farthest">Farthest first</option>
+            </select>
+          </div>
+
+          {/* Radius filter — only meaningful with a distance sort active */}
+          <div>
+            <select
+              value={radiusKm}
+              onChange={(e) => setRadiusKm(e.target.value)}
+              disabled={!distanceActive}
+              title={!distanceActive ? 'Turn on distance sorting to filter by radius' : 'Show only candidates within this distance of the job'}
+              className="w-full h-10 px-3 border border-slate-200 dark:border-darkBorder rounded-xl bg-white dark:bg-slate-900 text-xs text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <option value="">Any distance</option>
+              <option value="25">Within 25 km</option>
+              <option value="50">Within 50 km</option>
+              <option value="100">Within 100 km</option>
+              <option value="250">Within 250 km</option>
+              <option value="500">Within 500 km</option>
             </select>
           </div>
 
@@ -441,6 +463,26 @@ const Candidates = () => {
           </div>
         </div>
       </div>
+
+      {/* Distance status: reference, radius, and why it might be unavailable. */}
+      {distanceActive && distanceInfo && (
+        distanceInfo.available === false ? (
+          <div className="mb-3 flex items-start gap-2 px-3 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-700 dark:text-amber-400">
+            <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+            <span>{distanceInfo.reason || 'Distance sorting is unavailable for this job.'}</span>
+          </div>
+        ) : (
+          <div className="mb-3 flex items-center gap-2 px-3 py-2 rounded-xl bg-brand-500/5 border border-brand-500/10 text-[11px] text-slate-500 dark:text-slate-400">
+            <MapPin size={12} className="text-brand-500 shrink-0" />
+            <span>
+              Sorted by distance from <span className="font-semibold text-slate-700 dark:text-slate-300">{distanceInfo.reference}</span>
+              {distanceInfo.radiusKm ? ` · within ${distanceInfo.radiusKm} km` : ''}
+              {'. '}Candidates with an unrecognized location are listed last.
+              {distanceInfo.capped ? ' Showing the top matches only — narrow the filters for full coverage.' : ''}
+            </span>
+          </div>
+        )
+      )}
 
       {/* Main Table View */}
       {loading ? (

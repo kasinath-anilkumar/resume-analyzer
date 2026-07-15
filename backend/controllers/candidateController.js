@@ -11,6 +11,7 @@ const ApplicantRepo = require('../models/applicantRepo');
 const CandidateMatcher = require('../services/candidateMatcher');
 const EmbeddingService = require('../services/embeddingService');
 const { getOrCompute } = require('../utils/ttlCache');
+const { geocode, distanceKm } = require('../utils/geocode');
 
 // How strongly embedding similarity blends into the deterministic fit score when
 // semantic matching is available (0 = keyword-only, 1 = embedding-only).
@@ -150,9 +151,17 @@ exports.createManualCandidate = async (req, res) => {
 // @access  Private
 exports.getCandidates = async (req, res) => {
   try {
-    const { jobId, status, minScore, search, skill, verdict, page, pageSize } = req.query;
+    const { jobId, status, minScore, search, skill, verdict, page, pageSize, sort, radiusKm } = req.query;
+    const filters = { jobId, status, minScore, search, skill, verdict };
+
+    // Distance sort/radius filter — reference is the SELECTED JOB's location, and
+    // ranking must span the WHOLE matching set, so it takes a dedicated path.
+    if (sort === 'distance_nearest' || sort === 'distance_farthest') {
+      return await getCandidatesByDistance(res, { filters, sort, radiusKm, page, pageSize });
+    }
+
     // SQL-side filtered pagination — never loads the whole table into memory.
-    const result = await CandidateRepo.listApiPaged({ jobId, status, minScore, search, skill, verdict, page, pageSize });
+    const result = await CandidateRepo.listApiPaged({ ...filters, page, pageSize });
     return res.json({
       success: true,
       count: result.rows.length,
@@ -166,6 +175,75 @@ exports.getCandidates = async (req, res) => {
     return res.status(500).json({ success: false, message: 'Server error retrieving candidates' });
   }
 };
+
+// Distance path: measure each candidate's location against the selected job's
+// location (geocoded), rank the full matching set, then paginate + hydrate only
+// the page. Candidates whose location can't be geocoded sort last (and are
+// excluded when a radius is set). Bounded: distance always implies a selected
+// job, so the matching set is that job's applicants.
+async function getCandidatesByDistance(res, { filters, sort, radiusKm, page, pageSize }) {
+  const pg = Math.max(parseInt(page, 10) || 1, 1);
+  const size = Math.min(Math.max(parseInt(pageSize, 10) || 25, 1), 500);
+
+  if (!filters.jobId) {
+    return res.status(400).json({ success: false, message: 'Select a job to sort candidates by distance from its location.' });
+  }
+  const job = await JobRepo.findById(filters.jobId);
+  const ref = job ? geocode(job.location) : null;
+
+  // Can't map the job's location → return the normal ordering and tell the UI why.
+  if (!ref) {
+    const result = await CandidateRepo.listApiPaged({ ...filters, page, pageSize });
+    return res.json({
+      success: true,
+      count: result.rows.length,
+      total: result.total,
+      page: result.page,
+      pageSize: result.pageSize,
+      data: result.rows,
+      distance: {
+        available: false,
+        reason: job
+          ? `Couldn't determine coordinates for the job location "${job.location}", so distance sorting is unavailable.`
+          : 'Job not found.',
+      },
+    });
+  }
+
+  const { rows, capped } = await CandidateRepo.searchAllMatching(filters, 3000);
+  const radius = radiusKm ? parseInt(radiusKm, 10) : null;
+
+  let withDist = rows.map((c) => {
+    const cc = geocode(c.currentLocation);
+    return { ...c, distanceKm: cc ? distanceKm(ref, cc) : null };
+  });
+
+  if (radius && radius > 0) {
+    withDist = withDist.filter((c) => c.distanceKm != null && c.distanceKm <= radius);
+  }
+
+  const dir = sort === 'distance_farthest' ? -1 : 1;
+  withDist.sort((a, b) => {
+    if (a.distanceKm == null && b.distanceKm == null) return 0;
+    if (a.distanceKm == null) return 1;   // unknown location → always last
+    if (b.distanceKm == null) return -1;
+    return (a.distanceKm - b.distanceKm) * dir;
+  });
+
+  const total = withDist.length;
+  const pageSlice = withDist.slice((pg - 1) * size, (pg - 1) * size + size);
+  const hydrated = await CandidateRepo.hydrateRows(pageSlice); // keeps distanceKm
+
+  return res.json({
+    success: true,
+    count: hydrated.length,
+    total,
+    page: pg,
+    pageSize: size,
+    data: hydrated,
+    distance: { available: true, reference: job.location, radiusKm: radius || null, capped },
+  });
+}
 
 // @desc    Cross-role recommendations: rank the WHOLE candidate pool by how well
 //          each fits the given job, regardless of the role they applied for.

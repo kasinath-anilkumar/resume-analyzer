@@ -230,14 +230,22 @@ const CandidateRepo = {
 
     const total = data && data.length ? Number(data[0].total_count) : 0;
     const rows = (data || []).map((r) => toApi(r.candidate));
+    const mapped = await this.hydrateRows(rows);
+    return { rows: mapped, total, page: p, pageSize: limit };
+  },
 
-    // Bounded duplicate/other-application detection: look up other apps only for
-    // THIS page's emails (a small IN query), not the whole table.
-    const pageEmails = [...new Set(rows.map((c) => c.email).filter(Boolean))];
+  // Enrich a set of (toApi'd) candidate rows with the populated job object and
+  // duplicate/other-application info — the per-page bounded lookups shared by the
+  // normal list and the distance path (which sorts the full set, then hydrates
+  // only the page slice). Preserves any extra fields already on each row (e.g.
+  // distanceKm).
+  async hydrateRows(rows) {
+    if (!rows || !rows.length) return [];
+    const emails = [...new Set(rows.map((c) => c.email).filter(Boolean))];
     const byEmail = {};
-    if (pageEmails.length) {
+    if (emails.length) {
       const { data: others } = await getClient()
-        .from(TABLE).select('id, email, job_id').is('deleted_at', null).in('email', pageEmails);
+        .from(TABLE).select('id, email, job_id').is('deleted_at', null).in('email', emails);
       (others || []).forEach((r) => {
         const e = String(r.email || '').toLowerCase();
         if (e) (byEmail[e] = byEmail[e] || []).push(r);
@@ -247,7 +255,7 @@ const CandidateRepo = {
     rows.forEach((c) => (byEmail[String(c.email || '').toLowerCase()] || []).forEach((r) => jobIdsNeeded.add(String(r.job_id))));
     const jobs = await jobLookup([...jobIdsNeeded], ['title', 'department']);
 
-    const mapped = rows.map((c) => {
+    return rows.map((c) => {
       const group = byEmail[String(c.email || '').toLowerCase()] || [];
       const sameJob = group.filter((r) => String(r.job_id) === String(c.jobId) && String(r.id) !== String(c._id));
       const otherJobIds = [...new Set(group.filter((r) => String(r.job_id) !== String(c.jobId)).map((r) => String(r.job_id)))];
@@ -259,7 +267,27 @@ const CandidateRepo = {
         otherApplications: otherJobIds.map((jid) => ({ _id: jid, title: jobs[jid]?.title || 'Unknown role' })),
       };
     });
-    return { rows: mapped, total, page: p, pageSize: limit };
+  },
+
+  // Fetch ALL candidates matching the given filters (up to `cap`), UNHYDRATED —
+  // used by the distance sort, which must rank the whole matching set (not just
+  // one page) before paginating. Returns { rows, total, capped }.
+  async searchAllMatching({ jobId, status, minScore, search, skill, verdict } = {}, cap = 3000) {
+    const limit = Math.min(Math.max(parseInt(cap, 10) || 3000, 1), 5000);
+    const { data, error } = await getClient().rpc('search_candidates', {
+      p_job_id: jobId || null,
+      p_status: status || null,
+      p_min_score: minScore ? (parseInt(minScore, 10) || 0) : 0,
+      p_search: search ? String(search).trim() : null,
+      p_skill: skill ? String(skill).trim() : null,
+      p_verdict: verdict || null,
+      p_limit: limit,
+      p_offset: 0,
+    });
+    if (error) throw error;
+    const total = data && data.length ? Number(data[0].total_count) : 0;
+    const rows = (data || []).map((r) => toApi(r.candidate));
+    return { rows, total, capped: total > rows.length };
   },
 
   // Single candidate with a richer populated job object.
