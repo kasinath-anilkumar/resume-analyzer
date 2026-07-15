@@ -70,6 +70,19 @@ const PortalRegister = () => {
           </div>
         </div>
 
+        {/* Top Brand Panel for Small Screens (Visible only on mobile/tablet) */}
+        <div className="flex md:hidden flex-col items-center justify-center p-6 bg-[#1c1c1c] text-white relative overflow-hidden border-b luxury-border-thin text-center">
+          <div className="absolute inset-0 opacity-5 bg-[radial-gradient(#c5a880_1px,transparent_1px)] [background-size:16px_16px]"></div>
+          <img 
+            src="https://parakkatjewels.com/cdn/shop/files/Logo.png?v=1711363419&width=96" 
+            alt="Parakkat Jewels Logo" 
+            className="h-10 w-auto object-contain brightness-100 mb-2.5" 
+          />
+          <h2 className="text-[10px] font-light tracking-[0.15em] uppercase">
+            Create an Account, <span className="text-[#c5a880] font-normal">Track Your Application.</span>
+          </h2>
+        </div>
+
         {/* Right Form Panel */}
         <div className="p-6 md:p-8 flex flex-col justify-center bg-white/60 dark:bg-black/10">
           

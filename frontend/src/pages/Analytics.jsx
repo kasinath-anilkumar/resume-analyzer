@@ -24,9 +24,10 @@ const Analytics = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (fresh = false) => {
     try {
-      const res = await api.get('/analytics');
+      // Results are cached ~30s server-side; the Refresh button forces a rebuild.
+      const res = await api.get(fresh ? '/analytics?fresh=1' : '/analytics');
       if (res.data.success) setData(res.data.data);
     } catch (err) {
       console.error('Error fetching analytics', err);
@@ -75,7 +76,7 @@ const Analytics = () => {
           </p>
         </div>
         <button
-          onClick={() => { setRefreshing(true); fetchData(); }}
+          onClick={() => { setRefreshing(true); fetchData(true); }}
           className="mt-4 md:mt-0 relative z-10 flex items-center gap-2 px-4 py-2 bg-white/10 hover:bg-white/15 rounded-xl text-xs font-semibold border border-white/10 transition"
         >
           <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />

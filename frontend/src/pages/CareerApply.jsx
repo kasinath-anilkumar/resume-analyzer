@@ -35,6 +35,14 @@ const CareerApply = () => {
   const [form, setForm] = useState({ name: '', email: '', phone: '', currentLocation: '', salaryExpectation: '' });
   const [answers, setAnswers] = useState([]); // [{question, answer}]
   const [file, setFile] = useState(null);
+  const [enterDetailsManually, setEnterDetailsManually] = useState(false);
+  const [manualStep, setManualStep] = useState(1);
+  const [manualResume, setManualResume] = useState({
+    education: [{ school: '', degree: '', year: '' }],
+    experience: [{ company: '', title: '', duration: '', desc: '' }],
+    skills: '',
+    projects: [{ name: '', desc: '' }]
+  });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [done, setDone] = useState(null); // success message
@@ -120,6 +128,128 @@ const CareerApply = () => {
     return () => document.removeEventListener('visibilitychange', onHide);
   }, [hasQuiz, done]);
 
+  // Sync manual resume details to File object
+  useEffect(() => {
+    if (enterDetailsManually) {
+      let content = `=== RESUME DETAIL PROFILE (MANUAL ENTRY) ===\n\n`;
+      content += `NAME: ${form.name || 'N/A'}\n`;
+      content += `EMAIL: ${form.email || 'N/A'}\n`;
+      content += `PHONE: ${form.phone || 'N/A'}\n`;
+      content += `LOCATION: ${form.currentLocation || 'N/A'}\n`;
+      content += `EXPECTED SALARY: ${form.salaryExpectation || 'N/A'}\n\n`;
+
+      content += `--- EDUCATION ---\n`;
+      if (manualResume.education.length > 0) {
+        manualResume.education.forEach((edu, idx) => {
+          if (edu.school || edu.degree) {
+            content += `[Education #${idx + 1}]\n`;
+            content += `  School: ${edu.school || 'N/A'}\n`;
+            content += `  Degree: ${edu.degree || 'N/A'}\n`;
+            content += `  Graduation Year: ${edu.year || 'N/A'}\n`;
+          }
+        });
+      } else {
+        content += `No education history provided.\n`;
+      }
+      content += `\n`;
+
+      content += `--- EXPERIENCE ---\n`;
+      if (manualResume.experience.length > 0) {
+        manualResume.experience.forEach((exp, idx) => {
+          if (exp.company || exp.title) {
+            content += `[Experience #${idx + 1}]\n`;
+            content += `  Company: ${exp.company || 'N/A'}\n`;
+            content += `  Title: ${exp.title || 'N/A'}\n`;
+            content += `  Duration: ${exp.duration || 'N/A'}\n`;
+            content += `  Description: ${exp.desc || 'N/A'}\n`;
+          }
+        });
+      } else {
+        content += `No experience history provided.\n`;
+      }
+      content += `\n`;
+
+      content += `--- PROJECTS ---\n`;
+      if (manualResume.projects.length > 0) {
+        manualResume.projects.forEach((proj, idx) => {
+          if (proj.name) {
+            content += `[Project #${idx + 1}]\n`;
+            content += `  Project Name: ${proj.name || 'N/A'}\n`;
+            content += `  Description: ${proj.desc || 'N/A'}\n`;
+          }
+        });
+      } else {
+        content += `No projects provided.\n`;
+      }
+      content += `\n`;
+
+      content += `--- KEY SKILLS ---\n`;
+      content += `${manualResume.skills || 'No skills provided.'}\n`;
+
+      const blob = new Blob([content], { type: 'text/plain' });
+      const mockFile = new File([blob], `${(form.name || 'resume').replace(/\s+/g, '_')}_Resume_Manual.txt`, { type: 'text/plain' });
+      setFile(mockFile);
+    } else {
+      if (file && file.name.endsWith('_Resume_Manual.txt')) {
+        setFile(null);
+      }
+    }
+  }, [enterDetailsManually, manualResume, form.name, form.email, form.phone, form.currentLocation, form.salaryExpectation]);
+
+  const addEducation = () => {
+    setManualResume((prev) => ({
+      ...prev,
+      education: [...prev.education, { school: '', degree: '', year: '' }]
+    }));
+  };
+  const removeEducation = (index) => {
+    setManualResume((prev) => ({
+      ...prev,
+      education: prev.education.filter((_, i) => i !== index)
+    }));
+  };
+  const updateEducation = (index, field, value) => {
+    const updated = [...manualResume.education];
+    updated[index][field] = value;
+    setManualResume((prev) => ({ ...prev, education: updated }));
+  };
+
+  const addExperience = () => {
+    setManualResume((prev) => ({
+      ...prev,
+      experience: [...prev.experience, { company: '', title: '', duration: '', desc: '' }]
+    }));
+  };
+  const removeExperience = (index) => {
+    setManualResume((prev) => ({
+      ...prev,
+      experience: prev.experience.filter((_, i) => i !== index)
+    }));
+  };
+  const updateExperience = (index, field, value) => {
+    const updated = [...manualResume.experience];
+    updated[index][field] = value;
+    setManualResume((prev) => ({ ...prev, experience: updated }));
+  };
+
+  const addProject = () => {
+    setManualResume((prev) => ({
+      ...prev,
+      projects: [...prev.projects, { name: '', desc: '' }]
+    }));
+  };
+  const removeProject = (index) => {
+    setManualResume((prev) => ({
+      ...prev,
+      projects: prev.projects.filter((_, i) => i !== index)
+    }));
+  };
+  const updateProject = (index, field, value) => {
+    const updated = [...manualResume.projects];
+    updated[index][field] = value;
+    setManualResume((prev) => ({ ...prev, projects: updated }));
+  };
+
   // Phone is optional, but if provided it must be a valid number for its country.
   const phoneValid = !form.phone || isValidPhoneNumber(form.phone);
 
@@ -128,6 +258,9 @@ const CareerApply = () => {
       return form.name.trim() !== '' && form.email.trim() !== '' && form.email.includes('@') && phoneValid;
     }
     if (currentStep === 2) {
+      if (enterDetailsManually) {
+        return manualStep === 4 && manualResume.skills.trim() !== '';
+      }
       return file !== null || (usePrimaryResume && hasPrimaryResume);
     }
     return true;
@@ -465,7 +598,16 @@ const CareerApply = () => {
                             </label>
                           )}
 
-                          {(!hasPrimaryResume || !usePrimaryResume) && (
+                          {/* Checkbox to enter details manually */}
+                          <label className="flex items-center gap-2.5 p-3 border luxury-border-thin cursor-pointer text-xs tracking-wide bg-[#c5a880]/5">
+                            <input type="checkbox" checked={enterDetailsManually} onChange={(e) => {
+                              setEnterDetailsManually(e.target.checked);
+                              if (e.target.checked) setUsePrimaryResume(false);
+                            }} className="accent-[#c5a880]" />
+                            <span className="text-slate-600 dark:text-slate-300 font-semibold">I don't have a résumé, I'll enter my details manually</span>
+                          </label>
+
+                          {(!hasPrimaryResume || !usePrimaryResume) && !enterDetailsManually && (
                             <label className={`flex flex-col items-center justify-center p-6 border-2 border-dashed rounded-none cursor-pointer transition-all duration-300 ${file ? 'border-emerald-500 bg-emerald-500/5' : 'border-slate-300 dark:border-slate-800 hover:border-[#c5a880]'}`}>
                               {file ? <FileText size={24} className="text-emerald-500 mb-2" /> : <UploadCloud size={24} className="text-[#c5a880] mb-2" />}
                               <span className="text-xs text-slate-600 dark:text-slate-300 truncate max-w-full font-medium tracking-wide">
@@ -476,6 +618,140 @@ const CareerApply = () => {
                               </span>
                               <input type="file" accept={ACCEPT} className="hidden" onChange={(e) => onPickResume(e.target.files?.[0] || null)} />
                             </label>
+                          )}
+
+                          {enterDetailsManually && (
+                            <div className="p-3 border luxury-border-thin bg-slate-50/30 dark:bg-black/10 space-y-4 mt-3 animate-in fade-in duration-300">
+                              {/* Horizontal sub-step indicator */}
+                              <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800/60 pb-2 mb-3">
+                                <span className="text-[10px] font-bold text-[#c5a880] uppercase tracking-[0.25em]">Manual Résumé Builder</span>
+                                <div className="flex items-center gap-1.5 sm:gap-2.5 text-[8.5px] font-bold tracking-wider text-slate-400">
+                                  <span className={manualStep === 1 ? 'text-[#c5a880]' : manualStep > 1 ? 'text-[#c5a880]/60' : ''}>01 EDU</span>
+                                  <span className="text-slate-355 dark:text-slate-800">➔</span>
+                                  <span className={manualStep === 2 ? 'text-[#c5a880]' : manualStep > 2 ? 'text-[#c5a880]/60' : ''}>02 EXP</span>
+                                  <span className="text-slate-355 dark:text-slate-800">➔</span>
+                                  <span className={manualStep === 3 ? 'text-[#c5a880]' : manualStep > 3 ? 'text-[#c5a880]/60' : ''}>03 PROJ</span>
+                                  <span className="text-slate-355 dark:text-slate-800">➔</span>
+                                  <span className={manualStep === 4 ? 'text-[#c5a880]' : ''}>04 SKILLS</span>
+                                </div>
+                              </div>
+
+                              {/* Node 1: Education */}
+                              {manualStep === 1 && (
+                                <div className="space-y-3 animate-in fade-in duration-200">
+                                  <div className="flex justify-between items-center">
+                                    <span className="text-[9px] font-extrabold text-[#c5a880] uppercase tracking-wider">Education</span>
+                                    <button type="button" onClick={addEducation} className="text-[9px] font-bold text-[#c5a880] hover:underline uppercase tracking-wider">
+                                      + Add School
+                                    </button>
+                                  </div>
+                                  {manualResume.education.map((edu, idx) => (
+                                    <div key={idx} className="p-2 border luxury-border-thin bg-white/30 dark:bg-black/20 space-y-2 relative">
+                                      {manualResume.education.length > 1 && (
+                                        <button type="button" onClick={() => removeEducation(idx)} className="absolute right-3 top-2.5 text-[9px] font-bold text-rose-500 hover:underline uppercase tracking-wider">
+                                          Remove
+                                        </button>
+                                      )}
+                                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                        <div className="space-y-1">
+                                          <label className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">School/University</label>
+                                          <input type="text" value={edu.school} onChange={(e) => updateEducation(idx, 'school', e.target.value)} placeholder="e.g. University of Kerala" className={input} />
+                                        </div>
+                                        <div className="space-y-1">
+                                          <label className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">Degree/Major</label>
+                                          <input type="text" value={edu.degree} onChange={(e) => updateEducation(idx, 'degree', e.target.value)} placeholder="e.g. B.Tech Computer Science" className={input} />
+                                        </div>
+                                        <div className="space-y-1">
+                                          <label className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">Graduation Year</label>
+                                          <input type="text" value={edu.year} onChange={(e) => updateEducation(idx, 'year', e.target.value)} placeholder="e.g. 2024" className={input} />
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+
+                              {/* Node 2: Work Experience */}
+                              {manualStep === 2 && (
+                                <div className="space-y-3 animate-in fade-in duration-200">
+                                  <div className="flex justify-between items-center">
+                                    <span className="text-[9px] font-extrabold text-[#c5a880] uppercase tracking-wider">Work Experience</span>
+                                    <button type="button" onClick={addExperience} className="text-[9px] font-bold text-[#c5a880] hover:underline uppercase tracking-wider">
+                                      + Add Experience
+                                    </button>
+                                  </div>
+                                  {manualResume.experience.map((exp, idx) => (
+                                    <div key={idx} className="p-2 border luxury-border-thin bg-white/30 dark:bg-black/20 space-y-2 relative">
+                                      {manualResume.experience.length > 1 && (
+                                        <button type="button" onClick={() => removeExperience(idx)} className="absolute right-3 top-2.5 text-[9px] font-bold text-rose-500 hover:underline uppercase tracking-wider">
+                                          Remove
+                                        </button>
+                                      )}
+                                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                        <div className="space-y-1">
+                                          <label className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">Company Name</label>
+                                          <input type="text" value={exp.company} onChange={(e) => updateExperience(idx, 'company', e.target.value)} placeholder="e.g. TCS" className={input} />
+                                        </div>
+                                        <div className="space-y-1">
+                                          <label className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">Job Title</label>
+                                          <input type="text" value={exp.title} onChange={(e) => updateExperience(idx, 'title', e.target.value)} placeholder="e.g. Frontend Engineer" className={input} />
+                                        </div>
+                                        <div className="space-y-1 sm:col-span-2">
+                                          <label className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">Duration / Date Range</label>
+                                          <input type="text" value={exp.duration} onChange={(e) => updateExperience(idx, 'duration', e.target.value)} placeholder="e.g. June 2022 - Present or 2 Years" className={input} />
+                                        </div>
+                                        <div className="space-y-1 sm:col-span-2">
+                                          <label className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">Role Summary / Key Achievements</label>
+                                          <textarea rows="3" value={exp.desc} onChange={(e) => updateExperience(idx, 'desc', e.target.value)} placeholder="Describe your key responsibilities and impact..." className="w-full p-2.5 border text-xs tracking-wide luxury-input focus:outline-none resize-none bg-transparent" />
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+
+                              {/* Node 3: Projects */}
+                              {manualStep === 3 && (
+                                <div className="space-y-3 animate-in fade-in duration-200">
+                                  <div className="flex justify-between items-center">
+                                    <span className="text-[9px] font-extrabold text-[#c5a880] uppercase tracking-wider">Projects (Optional)</span>
+                                    <button type="button" onClick={addProject} className="text-[9px] font-bold text-[#c5a880] hover:underline uppercase tracking-wider">
+                                      + Add Project
+                                    </button>
+                                  </div>
+                                  {manualResume.projects.map((proj, idx) => (
+                                    <div key={idx} className="p-2 border luxury-border-thin bg-white/30 dark:bg-black/20 space-y-2 relative">
+                                      {manualResume.projects.length > 1 && (
+                                        <button type="button" onClick={() => removeProject(idx)} className="absolute right-3 top-2.5 text-[9px] font-bold text-rose-500 hover:underline uppercase tracking-wider">
+                                          Remove
+                                        </button>
+                                      )}
+                                      <div className="space-y-2">
+                                        <div className="space-y-1">
+                                          <label className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">Project Name</label>
+                                          <input type="text" value={proj.name} onChange={(e) => updateProject(idx, 'name', e.target.value)} placeholder="e.g. Portfolio Website" className={input} />
+                                        </div>
+                                        <div className="space-y-1">
+                                          <label className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">Project Description</label>
+                                          <textarea rows="2" value={proj.desc} onChange={(e) => updateProject(idx, 'desc', e.target.value)} placeholder="Briefly describe the technologies used and goals of this project..." className="w-full p-2.5 border text-xs tracking-wide luxury-input focus:outline-none resize-none bg-transparent" />
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+
+                              {/* Node 4: Skills */}
+                              {manualStep === 4 && (
+                                <div className="space-y-3 animate-in fade-in duration-200">
+                                  <span className="text-[9px] font-extrabold text-[#c5a880] uppercase tracking-wider block">Key Professional Skills *</span>
+                                  <div className="space-y-1.5">
+                                    <input type="text" required={enterDetailsManually} value={manualResume.skills} onChange={(e) => setManualResume((prev) => ({ ...prev, skills: e.target.value }))} placeholder="e.g. React, JavaScript, Node.js, UI/UX Design, CSS" className={input} />
+                                    <p className="text-[8px] text-slate-400 uppercase tracking-wider">Separate skills with commas.</p>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
                           )}
                         </div>
 
@@ -548,44 +824,89 @@ const CareerApply = () => {
                     )}
 
                     {/* Navigation buttons */}
-                    <div className="flex items-center justify-between pt-4 border-t luxury-border-thin">
-                      {currentStep > 1 ? (
+                    {currentStep === 2 && enterDetailsManually ? (
+                      <div className="flex items-center justify-between pt-4 border-t luxury-border-thin">
                         <button
                           type="button"
-                          onClick={() => setCurrentStep((s) => s - 1)}
+                          onClick={() => {
+                            if (manualStep > 1) {
+                              setManualStep((s) => s - 1);
+                            } else {
+                              setCurrentStep(1);
+                            }
+                          }}
                           className="px-6 h-11 border border-slate-300 dark:border-slate-800 text-[10px] font-medium tracking-widest uppercase rounded-none hover:border-[#c5a880] transition duration-300 cursor-pointer text-[#1c1c1c] dark:text-[#f5efe9]"
                         >
                           Back
                         </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => setShowForm(false)}
-                          className="px-6 h-11 border border-slate-300 dark:border-slate-800 text-[10px] font-medium tracking-widest uppercase rounded-none hover:border-[#c5a880] transition duration-300 cursor-pointer text-[#1c1c1c] dark:text-[#f5efe9]"
-                        >
-                          Cancel
-                        </button>
-                      )}
 
-                      {currentStep < steps.length ? (
-                        <button
-                          type="button"
-                          disabled={!canGoNext()}
-                          onClick={() => setCurrentStep((s) => s + 1)}
-                          className="px-8 h-11 bg-[#1c1c1c] text-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[#c5a880] hover:text-[#1c1c1c] text-[10px] font-medium tracking-widest uppercase rounded-none transition duration-300 cursor-pointer"
-                        >
-                          Next
-                        </button>
-                      ) : (
-                        <button
-                          type="submit"
-                          disabled={submitting || (currentStep === 2 && !canGoNext())}
-                          className="flex items-center justify-center px-8 h-11 bg-[#1c1c1c] text-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[#c5a880] hover:text-[#1c1c1c] text-[10px] font-medium tracking-widest uppercase rounded-none transition duration-300 cursor-pointer"
-                        >
-                          {submitting ? <Loader2 size={14} className="animate-spin" /> : <span>Submit Application</span>}
-                        </button>
-                      )}
-                    </div>
+                        {manualStep < 4 ? (
+                          <button
+                            type="button"
+                            onClick={() => setManualStep((s) => s + 1)}
+                            className="px-8 h-11 bg-[#1c1c1c] text-white hover:bg-[#c5a880] hover:text-[#1c1c1c] text-[10px] font-medium tracking-widest uppercase rounded-none transition duration-300 cursor-pointer"
+                          >
+                            Next
+                          </button>
+                        ) : currentStep < steps.length ? (
+                          <button
+                            type="button"
+                            disabled={!manualResume.skills.trim()}
+                            onClick={() => setCurrentStep((s) => s + 1)}
+                            className="px-8 h-11 bg-[#1c1c1c] text-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[#c5a880] hover:text-[#1c1c1c] text-[10px] font-medium tracking-widest uppercase rounded-none transition duration-300 cursor-pointer"
+                          >
+                            Next
+                          </button>
+                        ) : (
+                          <button
+                            type="submit"
+                            disabled={submitting || !manualResume.skills.trim()}
+                            className="flex items-center justify-center px-8 h-11 bg-[#1c1c1c] text-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[#c5a880] hover:text-[#1c1c1c] text-[10px] font-medium tracking-widest uppercase rounded-none transition duration-300 cursor-pointer"
+                          >
+                            {submitting ? <Loader2 size={14} className="animate-spin" /> : <span>Submit Application</span>}
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between pt-4 border-t luxury-border-thin">
+                        {currentStep > 1 ? (
+                          <button
+                            type="button"
+                            onClick={() => setCurrentStep((s) => s - 1)}
+                            className="px-6 h-11 border border-slate-300 dark:border-slate-800 text-[10px] font-medium tracking-widest uppercase rounded-none hover:border-[#c5a880] transition duration-300 cursor-pointer text-[#1c1c1c] dark:text-[#f5efe9]"
+                          >
+                            Back
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setShowForm(false)}
+                            className="px-6 h-11 border border-slate-300 dark:border-slate-800 text-[10px] font-medium tracking-widest uppercase rounded-none hover:border-[#c5a880] transition duration-300 cursor-pointer text-[#1c1c1c] dark:text-[#f5efe9]"
+                          >
+                            Cancel
+                          </button>
+                        )}
+
+                        {currentStep < steps.length ? (
+                          <button
+                            type="button"
+                            disabled={!canGoNext()}
+                            onClick={() => setCurrentStep((s) => s + 1)}
+                            className="px-8 h-11 bg-[#1c1c1c] text-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[#c5a880] hover:text-[#1c1c1c] text-[10px] font-medium tracking-widest uppercase rounded-none transition duration-300 cursor-pointer"
+                          >
+                            Next
+                          </button>
+                        ) : (
+                          <button
+                            type="submit"
+                            disabled={submitting || (currentStep === 2 && !canGoNext())}
+                            className="flex items-center justify-center px-8 h-11 bg-[#1c1c1c] text-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[#c5a880] hover:text-[#1c1c1c] text-[10px] font-medium tracking-widest uppercase rounded-none transition duration-300 cursor-pointer"
+                          >
+                            {submitting ? <Loader2 size={14} className="animate-spin" /> : <span>Submit Application</span>}
+                          </button>
+                        )}
+                      </div>
+                    )}
 
                     <p className="text-[8px] text-slate-400 uppercase tracking-widest text-center leading-relaxed mt-4">
                       By applying, you consent to your résumé being processed for this role in accordance with our privacy guidelines.
