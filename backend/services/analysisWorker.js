@@ -102,13 +102,27 @@ async function processOne(row) {
         return CandidateRepo.failAnalysis(id, 'Could not read any text from the résumé.');
       }
 
-      // GATE: is this actually a résumé/CV? Reject non-résumés (ID cards, random
+      // GATE 1: is this actually a résumé/CV? Reject non-résumés (ID cards, random
       // docs) WITHOUT spending an AI call. The applicant sees the reason in their
       // portal; recruiters see it flagged.
       const check = ResumeValidator.validate(text);
       if (!check.ok) {
         await CandidateRepo.rejectAsNonResume(id, check.reason, { rejectApplication: row.source === 'Application' });
         console.log('[worker] rejected non-résumé upload', id, '-', check.category);
+        return;
+      }
+
+      // GATE 2: is the applicant reachable? If the form gave no usable contact
+      // (recruiter uploads start with a placeholder) AND the résumé has no email
+      // or phone, reject — there's no way to contact them. (Public applicants
+      // always provide a form email, so this only affects contactless uploads.)
+      if (!ResumeValidator.hasUsableContact(row.email, row.phone) && !ResumeValidator.hasContactInfo(text)) {
+        await CandidateRepo.rejectAsNonResume(
+          id,
+          'No contact details found — the résumé has no email address or phone number, so the applicant cannot be reached.',
+          { rejectApplication: row.source === 'Application' }
+        );
+        console.log('[worker] rejected: no contact details', id);
         return;
       }
 

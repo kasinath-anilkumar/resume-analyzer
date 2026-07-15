@@ -56,4 +56,34 @@ function validate(text) {
   return { ok: true, category: 'resume' }; // long document with no clear markers — let AI decide
 }
 
-module.exports = { validate, ID_DOC_SIGNALS, RESUME_SIGNALS };
+// --- Contact-details gate ---------------------------------------------------
+// A candidate must be reachable. If the apply form gave no usable contact (a
+// recruiter upload starts with a placeholder email) AND the résumé text has no
+// email or phone either, the profile is rejected.
+const EMAIL_RE = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i;
+
+const digitsOf = (s) => String(s || '').replace(/\D/g, '');
+
+// A real, reachable email already stored on the candidate (not the upload
+// placeholder pending-*@pending.local).
+const usableEmail = (e) => {
+  const s = String(e || '').trim().toLowerCase();
+  return Boolean(s) && !s.endsWith('@pending.local') && EMAIL_RE.test(s);
+};
+const usablePhone = (p) => digitsOf(p).length >= 8;
+
+// Does the candidate ALREADY have a contact method (from the apply form)?
+const hasUsableContact = (email, phone) => usableEmail(email) || usablePhone(phone);
+
+// Does the free text contain an email or a phone-shaped number (8–15 digits)?
+const hasContactInfo = (text) => {
+  const t = String(text || '');
+  if (EMAIL_RE.test(t)) return true;
+  const runs = t.match(/\+?\d[\d\s().-]{6,}\d/g) || [];
+  return runs.some((m) => { const d = digitsOf(m); return d.length >= 8 && d.length <= 15; });
+};
+
+module.exports = {
+  validate, hasUsableContact, hasContactInfo,
+  ID_DOC_SIGNALS, RESUME_SIGNALS,
+};

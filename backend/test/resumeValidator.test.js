@@ -1,7 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 
-const { validate } = require('../services/resumeValidator');
+const { validate, hasUsableContact, hasContactInfo } = require('../services/resumeValidator');
 
 const RESUME = `
 John Doe — Software Engineer. john@example.com | +91 90000 00000
@@ -54,4 +54,20 @@ test('handles empty / non-string input', () => {
   assert.equal(validate('').ok, false);
   assert.equal(validate(null).ok, false);
   assert.equal(validate(undefined).ok, false);
+});
+
+test('hasUsableContact: real email or a phone with enough digits', () => {
+  assert.equal(hasUsableContact('jane@example.com', ''), true);
+  assert.equal(hasUsableContact('', '+91 98765 43210'), true);
+  assert.equal(hasUsableContact('', '12345'), false);            // too few digits
+  assert.equal(hasUsableContact('pending-123@pending.local', ''), false); // upload placeholder
+  assert.equal(hasUsableContact('', ''), false);
+});
+
+test('hasContactInfo: finds an email or a phone-shaped number in text', () => {
+  assert.equal(hasContactInfo('Contact: jane@example.com'), true);
+  assert.equal(hasContactInfo('Phone: +91 98765-43210'), true);
+  assert.equal(hasContactInfo('Skilled in Java and Python. 5 years experience.'), false);
+  assert.equal(hasContactInfo('Graduated in 2019 with a 9.1 GPA'), false); // short numbers aren't phones
+  assert.equal(hasContactInfo(''), false);
 });
