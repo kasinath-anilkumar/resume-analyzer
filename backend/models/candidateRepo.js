@@ -348,6 +348,20 @@ const CandidateRepo = {
     return true;
   },
 
+  // Re-queue a candidate for the background analysis worker (Re-run AI Analysis).
+  // Async by design — the request returns instantly and the worker re-processes
+  // (résumé or manual entry), so the UI can show progress instead of blocking on
+  // a slow AI call. Returns the updated (populated) candidate.
+  async requeueForAnalysis(id) {
+    const { error } = await getClient()
+      .from(TABLE)
+      .update({ analysis_status: 'pending', analysis_error: null, updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .is('deleted_at', null);
+    if (error) throw error;
+    return this.findByIdApi(id);
+  },
+
   // Mark analysis complete WITHOUT changing the stored aiAnalysis — used to
   // finalize a manual entry when AI is unavailable (keeps its deterministic
   // baseline score) so it never ends up 'failed' or stuck 'pending'.

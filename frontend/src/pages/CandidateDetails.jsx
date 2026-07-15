@@ -82,6 +82,32 @@ const CandidateDetails = () => {
   const [deleting, setDeleting] = useState(false);
   const [deleteMenuOpen, setDeleteMenuOpen] = useState(false);
   const deleteMenuRef = useRef(null);
+  const [analysisProgress, setAnalysisProgress] = useState(0);
+
+  useEffect(() => {
+    let interval;
+    if (candidate && ['pending', 'processing'].includes(candidate.analysisStatus)) {
+      // Anchor the bar to how long analysis has ACTUALLY been running (from the
+      // candidate's updatedAt, set when it was queued/claimed) — so a page refresh
+      // continues the bar instead of restarting it at 0. The real analysis runs in
+      // the background worker and is never restarted by a refresh.
+      const startedAt = candidate.updatedAt ? new Date(candidate.updatedAt).getTime() : Date.now();
+      const elapsedSec = Math.max(0, (Date.now() - startedAt) / 1000);
+      const EXPECTED_SEC = 45; // rough analysis duration for the visual estimate
+      setAnalysisProgress(Math.min(95, Math.round((elapsedSec / EXPECTED_SEC) * 95)));
+      interval = setInterval(() => {
+        setAnalysisProgress((prev) => {
+          if (prev >= 95) return 95;
+          const diff = 95 - prev;
+          const step = Math.max(1, Math.round(diff * 0.12));
+          return prev + step;
+        });
+      }, 1000);
+    } else {
+      setAnalysisProgress(0);
+    }
+    return () => clearInterval(interval);
+  }, [candidate?.analysisStatus, candidate?._id, candidate?.updatedAt]);
 
   useEffect(() => {
     const handleOutsideClick = (e) => {
@@ -155,14 +181,16 @@ const CandidateDetails = () => {
   }, [canManage]);
 
   const handleReanalyze = async () => {
-    if (!window.confirm('Re-download the resume and re-run AI analysis against the current job? This overwrites the existing scores.')) return;
+    if (!window.confirm('Re-run AI analysis against the current job? This overwrites the existing scores.')) return;
     setReanalyzing(true);
     setActionMsg({ type: '', text: '' });
     try {
       const res = await api.post(`/candidates/${id}/reanalyze`);
       if (res.data.success) {
+        // Re-queued: the candidate is now 'pending' and the poll effect will show
+        // the "Analyzing…" progress and refresh the scores when the worker is done.
         setCandidate((prev) => ({ ...res.data.data, duplicates: prev.duplicates }));
-        flash('success', 'Candidate re-analyzed against the current job.');
+        flash('success', res.data.message || 'Re-queued for AI analysis — scores will refresh shortly.');
       } else {
         flash('error', res.data.message || 'Re-analysis failed.');
       }
@@ -489,9 +517,18 @@ const CandidateDetails = () => {
 
       {/* Analysis status banner */}
       {['pending', 'processing'].includes(candidate.analysisStatus) && (
-        <div className="p-3 text-xs rounded-xl border bg-brand-500/10 border-brand-500/20 text-brand-600 dark:text-brand-400 flex items-center gap-2">
-          <Loader2 size={14} className="animate-spin flex-shrink-0" />
-          <span>AI is analyzing this résumé — scores and insights will appear here automatically in a few seconds.</span>
+        <div className="p-3 text-xs rounded-xl border bg-brand-500/10 border-brand-500/20 text-brand-600 dark:text-brand-400 flex flex-col gap-2">
+          <div className="flex items-center gap-2">
+            <Loader2 size={14} className="animate-spin flex-shrink-0" />
+            <span>AI is analyzing this résumé — scores and insights will appear here automatically in a few seconds.</span>
+            <span className="ml-auto font-semibold">{analysisProgress}%</span>
+          </div>
+          <div className="w-full h-1.5 bg-brand-500/20 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-brand-500 rounded-full transition-all duration-300 ease-out"
+              style={{ width: `${analysisProgress}%` }}
+            />
+          </div>
         </div>
       )}
       {candidate.analysisStatus === 'failed' && (

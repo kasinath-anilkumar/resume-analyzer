@@ -542,42 +542,22 @@ exports.reanalyzeCandidate = async (req, res) => {
     if (!candidate) {
       return res.status(404).json({ success: false, message: 'Candidate not found' });
     }
-    if (!candidate.resume_url) {
-      return res.status(400).json({ success: false, message: 'This candidate was added manually and has no résumé to analyze.' });
+    if (candidate.deleted_at) {
+      return res.status(404).json({ success: false, message: 'Candidate not found' });
     }
-    const job = await JobRepo.findById(candidate.job_id);
-    if (!job) {
-      return res.status(404).json({ success: false, message: 'Candidate job not found' });
-    }
-
-    // 1. Pull the stored resume back into memory and re-extract its text.
-    let extractedText;
-    try {
-      const file = await StorageService.downloadResume(candidate.resume_url);
-      extractedText = await ParserService.extractText(file.buffer, file.mimeType, file.originalName);
-    } catch (dlErr) {
-      console.error('Re-analyze download/parse failed:', dlErr.message);
-      return res.status(502).json({ success: false, message: 'Could not read the stored resume to re-analyze.' });
-    }
-
-    // 2. Re-run AI analysis against the current job.
-    const aiConfig = await resolveAiConfig();
-    let parsed;
-    try {
-      parsed = await AIService.analyzeResume(extractedText, job, aiConfig);
-    } catch (aiErr) {
-      return res.status(aiErr.status || 502).json({
-        success: false,
-        code: aiErr.code || 'AI_FAILED',
-        message: aiErr.message || 'AI re-analysis failed. Verify the API key in Settings.',
-      });
-    }
-
-    // 3. Persist the refreshed AI fields.
-    const updated = await CandidateRepo.applyReanalysis(req.params.id, parsed);
-    return res.json({ success: true, data: updated, message: 'Candidate re-analyzed against the current job.' });
+    // Re-queue for the background worker instead of blocking the request on a slow
+    // AI call. The worker re-processes it (a stored résumé, or a manual entry's
+    // details) and the UI polls the 'pending' → 'completed' transition to show
+    // progress. Works for manual entries too (they get AI-screened from their
+    // details), so no résumé-required restriction here.
+    const updated = await CandidateRepo.requeueForAnalysis(req.params.id);
+    return res.json({
+      success: true,
+      data: updated,
+      message: 'Re-queued for AI analysis — scores will refresh here automatically in a few seconds.',
+    });
   } catch (error) {
-    console.error(error);
+    console.error('Re-analyze error:', error);
     return res.status(500).json({ success: false, message: 'Server error re-analyzing candidate' });
   }
 };
