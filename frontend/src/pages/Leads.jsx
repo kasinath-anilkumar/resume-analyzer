@@ -1,10 +1,9 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../services/api';
 import {
   Megaphone, Loader2, Search, RefreshCw, Send, ArrowRight, FileText,
-  CheckCircle2, AlertCircle, Clock, UploadCloud, Users,
-  ChevronLeft, ChevronRight,
+  CheckCircle2, AlertCircle, Clock, UploadCloud, Users, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 
 const STATUS_META = {
@@ -24,46 +23,73 @@ const fmtDate = (d) => (d ? new Date(d).toLocaleDateString(undefined, { day: 'nu
 const StatCard = ({ label, value, tone }) => (
   <div className="p-3.5 bg-white dark:bg-darkCard border border-slate-200/60 dark:border-darkBorder rounded-2xl shadow-premium dark:shadow-premium-dark">
     <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{label}</p>
-    <p className={`text-2xl font-extrabold mt-0.5 ${tone || 'text-slate-800 dark:text-slate-100'}`}>{value}</p>
+    <p className={`text-2xl font-extrabold mt-0.5 tabular-nums ${tone || 'text-slate-800 dark:text-slate-100'}`}>{value}</p>
   </div>
 );
 
+const PAGE_SIZE = 15;
+const selectCls = 'h-10 px-3 text-xs bg-white dark:bg-darkCard border border-slate-200 dark:border-darkBorder rounded-xl text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-500/30';
+
 const Leads = () => {
-  const [leads, setLeads] = useState([]);
+  const [leads, setLeads] = useState([]);       // current page only
+  const [total, setTotal] = useState(0);        // matching count (server)
   const [stats, setStats] = useState({ total: 0, awaiting: 0, received: 0, analyzed: 0, noRequest: 0 });
   const [jobs, setJobs] = useState([]);
-  const [loading, setLoading] = useState(true);
+
+  const [loading, setLoading] = useState(true); // initial
+  const [loadingList, setLoadingList] = useState(false); // refetch
   const [resendingId, setResendingId] = useState(null);
   const [sendingAll, setSendingAll] = useState(false);
   const [flash, setFlash] = useState({ type: '', text: '' });
 
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [jobFilter, setJobFilter] = useState('');
   const [sourceFilter, setSourceFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [page, setPage] = useState(1);
-  const PAGE_SIZE = 15;
 
   const showFlash = (type, text) => { setFlash({ type, text }); setTimeout(() => setFlash({ type: '', text: '' }), 5000); };
 
-  // Reset to first page when filters change
+  // Jobs (for the filter) — once.
   useEffect(() => {
-    setPage(1);
-  }, [search, jobFilter, sourceFilter, statusFilter]);
+    (async () => {
+      try { const j = await api.get('/jobs'); if (j.data.success) setJobs(j.data.data || []); } catch { /* ignore */ }
+    })();
+  }, []);
 
-  const load = useCallback(async () => {
+  // Debounce the search box → server-side search.
+  useEffect(() => {
+    const t = setTimeout(() => { setDebouncedSearch(search.trim()); setPage(1); }, 350);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  // Reset to page 1 when a filter changes.
+  useEffect(() => { setPage(1); }, [jobFilter, sourceFilter, statusFilter]);
+
+  const fetchLeads = useCallback(async (silent = false) => {
+    if (!silent) setLoadingList(true);
     try {
-      const [l, j] = await Promise.all([api.get('/candidates/leads'), api.get('/jobs')]);
-      if (l.data.success) { setLeads(l.data.data || []); setStats(l.data.stats || {}); }
-      if (j.data.success) setJobs(j.data.data || []);
-    } catch (err) {
+      const params = new URLSearchParams({ page: String(page), pageSize: String(PAGE_SIZE) });
+      if (jobFilter) params.set('jobId', jobFilter);
+      if (sourceFilter) params.set('source', sourceFilter);
+      if (statusFilter) params.set('status', statusFilter);
+      if (debouncedSearch) params.set('search', debouncedSearch);
+      const res = await api.get(`/candidates/leads?${params.toString()}`);
+      if (res.data.success) {
+        setLeads(res.data.data || []);
+        setTotal(res.data.total || 0);
+        setStats(res.data.stats || {});
+      }
+    } catch {
       showFlash('error', 'Could not load leads.');
     } finally {
       setLoading(false);
+      setLoadingList(false);
     }
-  }, []);
+  }, [page, jobFilter, sourceFilter, statusFilter, debouncedSearch]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { fetchLeads(); }, [fetchLeads]);
 
   const resend = async (lead) => {
     setResendingId(lead._id);
@@ -71,6 +97,7 @@ const Leads = () => {
       const res = await api.post(`/candidates/${lead._id}/resend-request`);
       showFlash('success', res.data.message || 'Request sent.');
       setLeads((prev) => prev.map((x) => (x._id === lead._id ? { ...x, leadStatus: 'awaiting', resumeRequestedAt: new Date().toISOString() } : x)));
+      setStats((s) => (lead.leadStatus === 'no_request' ? { ...s, noRequest: Math.max(0, (s.noRequest || 1) - 1), awaiting: (s.awaiting || 0) + 1 } : s));
     } catch (err) {
       showFlash('error', err.response?.data?.message || 'Could not send the request.');
     } finally {
@@ -78,13 +105,15 @@ const Leads = () => {
     }
   };
 
-  const sendAllRequests = async (count) => {
-    if (!window.confirm(`Send the WhatsApp résumé request to ${count} lead(s) awaiting one${jobFilter ? ' for this job' : ''}? Only leads with a phone number are messaged.`)) return;
+  const awaitingCount = (stats.awaiting || 0) + (stats.noRequest || 0);
+
+  const sendAllRequests = async () => {
+    if (!window.confirm(`Send the WhatsApp résumé request to ${awaitingCount} lead(s) awaiting one${jobFilter ? ' for this job' : ''}? Only leads with a phone number are messaged.`)) return;
     setSendingAll(true);
     try {
       const res = await api.post('/candidates/leads/send-requests', jobFilter ? { jobId: jobFilter } : {});
       showFlash('success', res.data.message || 'Sending requests…');
-      setTimeout(load, 4000); // refresh once some have been marked requested
+      setTimeout(() => fetchLeads(true), 4000); // refresh once some have been marked requested
     } catch (err) {
       showFlash('error', err.response?.data?.message || 'Could not send requests.');
     } finally {
@@ -92,34 +121,14 @@ const Leads = () => {
     }
   };
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return leads.filter((l) => {
-      if (jobFilter && String(l.job?._id) !== jobFilter) return false;
-      if (sourceFilter && l.source !== sourceFilter) return false;
-      if (statusFilter && l.leadStatus !== statusFilter) return false;
-      if (q) {
-        const hay = `${l.name || ''} ${l.email || ''} ${l.phone || ''}`.toLowerCase();
-        if (!hay.includes(q)) return false;
-      }
-      return true;
-    });
-  }, [leads, search, jobFilter, sourceFilter, statusFilter]);
-
-  const paginatedLeads = useMemo(() => {
-    const start = (page - 1) * PAGE_SIZE;
-    return filtered.slice(start, start + PAGE_SIZE);
-  }, [filtered, page]);
-
   if (loading) {
     return <div className="flex justify-center py-24"><Loader2 size={26} className="animate-spin text-brand-500" /></div>;
   }
 
-  // Leads (optionally scoped to the job filter) that still need a résumé — the
-  // bulk-send targets exactly these (the backend scopes by jobId only).
-  const awaitingCount = leads.filter(
-    (l) => (!jobFilter || String(l.job?._id) === jobFilter) && (l.leadStatus === 'awaiting' || l.leadStatus === 'no_request')
-  ).length;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const hasFilters = Boolean(jobFilter || sourceFilter || statusFilter || debouncedSearch);
+  const from = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const to = Math.min(page * PAGE_SIZE, total);
 
   return (
     <div className="space-y-4 max-w-7xl mx-auto">
@@ -132,12 +141,12 @@ const Leads = () => {
           <p className="text-xs text-slate-500">Everything the automation brings in — Meta Ad leads and imported sheets — with their résumé status.</p>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={load} className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 dark:border-darkBorder hover:bg-slate-50 dark:hover:bg-slate-800/50 text-slate-600 dark:text-slate-300 rounded-xl text-xs font-semibold transition">
-            <RefreshCw size={14} /> Refresh
+          <button onClick={() => fetchLeads(false)} disabled={loadingList} className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 dark:border-darkBorder hover:bg-slate-50 dark:hover:bg-slate-800/50 text-slate-600 dark:text-slate-300 rounded-xl text-xs font-semibold transition disabled:opacity-50">
+            {loadingList ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />} Refresh
           </button>
           {awaitingCount > 0 && (
             <button
-              onClick={() => sendAllRequests(awaitingCount)}
+              onClick={sendAllRequests}
               disabled={sendingAll}
               title="Send the WhatsApp résumé request to every lead awaiting one"
               className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-semibold shadow-sm transition"
@@ -161,7 +170,7 @@ const Leads = () => {
         </div>
       )}
 
-      {/* Stats */}
+      {/* Stats (exact counts — scoped to the job filter) */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard label="Total leads" value={stats.total || 0} />
         <StatCard label="Awaiting résumé" value={stats.awaiting || 0} tone="text-amber-600 dark:text-amber-400" />
@@ -200,19 +209,19 @@ const Leads = () => {
       </div>
 
       {/* Table */}
-      {filtered.length === 0 ? (
+      {total === 0 ? (
         <div className="text-center py-16 bg-white dark:bg-darkCard border border-slate-200/60 dark:border-darkBorder rounded-2xl">
           <Megaphone size={30} className="mx-auto text-slate-300 dark:text-slate-600 mb-3" />
-          <p className="text-sm font-semibold text-slate-600 dark:text-slate-300">{leads.length === 0 ? 'No leads yet' : 'No leads match these filters'}</p>
+          <p className="text-sm font-semibold text-slate-600 dark:text-slate-300">{hasFilters ? 'No leads match these filters' : 'No leads yet'}</p>
           <p className="text-xs text-slate-400 mt-1">
-            {leads.length === 0
-              ? <>Leads from Meta Ads and <Link to="/upload" className="text-brand-500 font-semibold underline">imported sheets</Link> show up here.</>
-              : 'Try clearing a filter.'}
+            {hasFilters
+              ? 'Try clearing a filter.'
+              : <>Leads from Meta Ads and <Link to="/upload" className="text-brand-500 font-semibold underline">imported sheets</Link> show up here.</>}
           </p>
         </div>
       ) : (
         <div className="bg-white dark:bg-darkCard border border-slate-200/60 dark:border-darkBorder rounded-2xl shadow-premium dark:shadow-premium-dark overflow-hidden">
-          <div className="overflow-x-auto">
+          <div className={`overflow-x-auto transition-opacity ${loadingList ? 'opacity-50' : ''}`}>
             <table className="w-full text-left border-collapse min-w-[720px]">
               <thead>
                 <tr className="text-[10px] uppercase tracking-wide text-slate-400 border-b border-slate-200 dark:border-darkBorder">
@@ -226,7 +235,7 @@ const Leads = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-darkBorder/60">
-                {paginatedLeads.map((l) => {
+                {leads.map((l) => {
                   const st = STATUS_META[l.leadStatus] || STATUS_META.no_request;
                   const src = SOURCE_META[l.source] || { label: l.source, cls: 'bg-slate-500/10 text-slate-500' };
                   const canResend = l.leadStatus === 'awaiting' || l.leadStatus === 'no_request';
@@ -275,42 +284,35 @@ const Leads = () => {
               </tbody>
             </table>
           </div>
-          {/* Pagination Controls */}
-          {filtered.length > 0 && (
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-3 border-t border-slate-100 dark:border-darkBorder/60 bg-slate-50/20 dark:bg-slate-900/10 text-xs text-slate-500">
-              <span>
-                Showing <strong className="text-slate-700 dark:text-slate-300">{Math.min(filtered.length, (page - 1) * PAGE_SIZE + 1)}–{Math.min(page * PAGE_SIZE, filtered.length)}</strong> of{' '}
-                <strong className="text-slate-700 dark:text-slate-300">{filtered.length}</strong> lead{filtered.length === 1 ? '' : 's'}
-              </span>
-              <div className="flex items-center gap-1.5">
-                <button
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  disabled={page <= 1}
-                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-white dark:bg-darkCard border border-slate-200 dark:border-darkBorder text-slate-600 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:text-brand-500 dark:hover:text-brand-400 transition"
-                >
-                  <ChevronLeft size={13} /> Prev
-                </button>
-                <span className="text-[11px] text-slate-500 px-1">Page {page} / {Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))}</span>
-                <button
-                  onClick={() => setPage((p) => p + 1)}
-                  disabled={page >= Math.ceil(filtered.length / PAGE_SIZE)}
-                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-white dark:bg-darkCard border border-slate-200 dark:border-darkBorder text-slate-600 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:text-brand-500 dark:hover:text-brand-400 transition"
-                >
-                  Next <ChevronRight size={13} />
-                </button>
-              </div>
+
+          {/* Pagination */}
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-3 border-t border-slate-100 dark:border-darkBorder/60 bg-slate-50/20 dark:bg-slate-900/10 text-xs text-slate-500">
+            <span className="tabular-nums">
+              Showing <strong className="text-slate-700 dark:text-slate-300">{from}–{to}</strong> of{' '}
+              <strong className="text-slate-700 dark:text-slate-300">{total}</strong> lead{total === 1 ? '' : 's'}
+            </span>
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page <= 1 || loadingList}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-white dark:bg-darkCard border border-slate-200 dark:border-darkBorder text-slate-600 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:text-brand-500 dark:hover:text-brand-400 transition"
+              >
+                <ChevronLeft size={13} /> Prev
+              </button>
+              <span className="text-[11px] text-slate-500 px-1 tabular-nums">Page {page} / {totalPages}</span>
+              <button
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page >= totalPages || loadingList}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-white dark:bg-darkCard border border-slate-200 dark:border-darkBorder text-slate-600 dark:text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed hover:text-brand-500 dark:hover:text-brand-400 transition"
+              >
+                Next <ChevronRight size={13} />
+              </button>
             </div>
-          )}
+          </div>
         </div>
       )}
-
-      <p className="text-[11px] text-slate-400 flex items-center gap-1.5">
-        <Users size={12} /> Showing {filtered.length} of {leads.length} lead{leads.length === 1 ? '' : 's'}.
-      </p>
     </div>
   );
 };
-
-const selectCls = 'h-10 px-3 text-xs bg-white dark:bg-darkCard border border-slate-200 dark:border-darkBorder rounded-xl text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-500/30';
 
 export default Leads;

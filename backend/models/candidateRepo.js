@@ -790,36 +790,70 @@ const CandidateRepo = {
 
   // List automation leads (source Lead / Sheet) for the Leads section — newest
   // first, job title populated, a light projection (no résumé body / skills).
-  async listLeads({ jobId, source } = {}) {
-    const rows = await fetchAllRows(() => {
-      let q = getClient()
-        .from(TABLE)
-        .select('id, name, email, phone, source, resume_url, analysis_status, resume_requested_at, resume_submitted_at, ai_analysis, job_id, created_at')
-        .is('deleted_at', null)
-        .in('source', ['Lead', 'Sheet']);
+  // One filtered + sorted PAGE of automation leads, plus the exact match count.
+  // Server-paginated so the Leads screen never pulls the whole pool to the browser
+  // (that was 7MB/8s at 17k leads). leadStatus maps to résumé-flow predicates.
+  async listLeadsPaged({ jobId, source, leadStatus, search, page = 1, pageSize = 15 } = {}) {
+    const limit = Math.min(Math.max(parseInt(pageSize, 10) || 15, 1), 100);
+    const p = Math.max(parseInt(page, 10) || 1, 1);
+    const offset = (p - 1) * limit;
+
+    const withFilters = (q) => {
+      q = q.is('deleted_at', null).in('source', ['Lead', 'Sheet']);
       if (jobId) q = q.eq('job_id', jobId);
       if (source === 'Lead' || source === 'Sheet') q = q.eq('source', source);
-      return q.order('created_at', { ascending: false }).order('id', { ascending: true });
-    });
-    const jobs = await jobLookup(rows.map((r) => r.job_id), ['title', 'department']);
-    return rows.map((r) => {
+      if (leadStatus === 'no_request') q = q.is('resume_url', null).is('resume_requested_at', null);
+      else if (leadStatus === 'awaiting') q = q.is('resume_url', null).not('resume_requested_at', 'is', null);
+      else if (leadStatus === 'analyzing') q = q.not('resume_url', 'is', null).in('analysis_status', ['pending', 'processing']);
+      else if (leadStatus === 'failed') q = q.not('resume_url', 'is', null).eq('analysis_status', 'failed');
+      else if (leadStatus === 'analyzed') q = q.not('resume_url', 'is', null).eq('analysis_status', 'completed');
+      // Strip PostgREST filter metacharacters before interpolating into .or().
+      const s = String(search || '').replace(/[,()%*:]/g, ' ').trim();
+      if (s) q = q.or(`name.ilike.%${s}%,email.ilike.%${s}%,phone.ilike.%${s}%`);
+      return q;
+    };
+
+    const { count, error: cErr } = await withFilters(
+      getClient().from(TABLE).select('id', { count: 'exact', head: true })
+    );
+    if (cErr) throw cErr;
+
+    const { data, error } = await withFilters(
+      getClient().from(TABLE).select('id, name, email, phone, source, resume_url, analysis_status, resume_requested_at, resume_submitted_at, ai_analysis, job_id, created_at')
+    ).order('created_at', { ascending: false }).order('id', { ascending: true }).range(offset, offset + limit - 1);
+    if (error) throw error;
+
+    const jobs = await jobLookup((data || []).map((r) => r.job_id), ['title', 'department']);
+    const rows = (data || []).map((r) => {
       const ai = r.ai_analysis && typeof r.ai_analysis === 'object' ? r.ai_analysis : {};
       return {
-        _id: r.id,
-        name: r.name,
-        email: r.email,
-        phone: r.phone || '',
-        source: r.source,
-        hasResume: !!r.resume_url,
-        analysisStatus: r.analysis_status || 'completed',
-        overallScore: ai.overallScore ?? null,
-        verdict: ai.verdict || ai.recommendation || '',
-        resumeRequestedAt: r.resume_requested_at || null,
-        resumeSubmittedAt: r.resume_submitted_at || null,
-        job: jobs[String(r.job_id)] || null,
-        createdAt: r.created_at,
+        _id: r.id, name: r.name, email: r.email, phone: r.phone || '', source: r.source,
+        hasResume: !!r.resume_url, analysisStatus: r.analysis_status || 'completed',
+        overallScore: ai.overallScore ?? null, verdict: ai.verdict || ai.recommendation || '',
+        resumeRequestedAt: r.resume_requested_at || null, resumeSubmittedAt: r.resume_submitted_at || null,
+        job: jobs[String(r.job_id)] || null, createdAt: r.created_at,
       };
     });
+    return { rows, total: count || 0, page: p, pageSize: limit };
+  },
+
+  // Exact lead stat-card counts (optionally scoped to a job) — count queries, so
+  // they're accurate regardless of pool size and never fetch rows.
+  async leadStats(jobId) {
+    const base = () => {
+      let q = getClient().from(TABLE).select('id', { count: 'exact', head: true }).is('deleted_at', null).in('source', ['Lead', 'Sheet']);
+      if (jobId) q = q.eq('job_id', jobId);
+      return q;
+    };
+    const run = async (q) => { const { count, error } = await q; if (error) throw error; return count || 0; };
+    const [total, received, awaiting, noRequest, analyzed] = await Promise.all([
+      run(base()),
+      run(base().not('resume_url', 'is', null)),
+      run(base().is('resume_url', null).not('resume_requested_at', 'is', null)),
+      run(base().is('resume_url', null).is('resume_requested_at', null)),
+      run(base().not('resume_url', 'is', null).eq('analysis_status', 'completed')),
+    ]);
+    return { total, received, awaiting, noRequest, analyzed };
   },
 
   // Minimal fields needed to (re)send a lead's résumé-request over WhatsApp.

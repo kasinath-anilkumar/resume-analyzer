@@ -164,15 +164,21 @@ const deriveLeadStatus = (r) => {
 // @access  Private (Admin, Recruiter)
 exports.getLeads = async (req, res) => {
   try {
-    const { jobId, source } = req.query;
-    const rows = (await CandidateRepo.listLeads({ jobId, source })).map((r) => ({ ...r, leadStatus: deriveLeadStatus(r) }));
-    const stats = { total: rows.length, noRequest: 0, awaiting: 0, received: 0, analyzed: 0 };
-    for (const r of rows) {
-      if (r.leadStatus === 'no_request') stats.noRequest += 1;
-      else if (r.leadStatus === 'awaiting') stats.awaiting += 1;
-      else { stats.received += 1; if (r.leadStatus === 'analyzed') stats.analyzed += 1; }
-    }
-    return res.json({ success: true, count: rows.length, stats, data: rows });
+    const { jobId, source, status, search, page, pageSize } = req.query;
+    const [pageRes, stats] = await Promise.all([
+      CandidateRepo.listLeadsPaged({ jobId, source, leadStatus: status, search, page, pageSize }),
+      CandidateRepo.leadStats(jobId),
+    ]);
+    const data = pageRes.rows.map((r) => ({ ...r, leadStatus: deriveLeadStatus(r) }));
+    return res.json({
+      success: true,
+      count: data.length,
+      total: pageRes.total,
+      page: pageRes.page,
+      pageSize: pageRes.pageSize,
+      stats,
+      data,
+    });
   } catch (error) {
     console.error('Get leads error:', error);
     return res.status(500).json({ success: false, message: 'Server error retrieving leads' });

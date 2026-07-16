@@ -209,6 +209,11 @@ create unique index if not exists candidates_resume_upload_token_idx on candidat
 create index if not exists candidates_pending_resume_idx
   on candidates (resume_requested_at desc nulls last)
   where resume_url is null and deleted_at is null;
+-- Pipeline board: exact per-stage counts and job+status filtered lists stay fast
+-- even when a single job holds a very large candidate pool.
+create index if not exists candidates_job_status_idx
+  on candidates (job_id, status)
+  where deleted_at is null;
 
 -- ---------------------------------------------------------------------------
 --  notifications
