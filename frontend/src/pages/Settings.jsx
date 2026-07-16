@@ -75,8 +75,8 @@ const Settings = () => {
   // Form input states
   const [newDept, setNewDept] = useState('');
 
-  // Server state metadata
-  const [dbState, setDbState] = useState({ connected: false, type: 'In-Memory Fallback' });
+  // Live system status (populated from GET /health).
+  const [dbState, setDbState] = useState({ serverOk: false, connected: false, type: 'Checking…' });
 
   const isHR = user && ['Admin', 'Recruiter'].includes(user.role);
   // Only Admins may view or manage the AI provider key / model.
@@ -192,12 +192,6 @@ const Settings = () => {
           if (aiKeyConfigured) fetchModels();
         }
 
-        // Query system stats to detect DB type
-        const statsRes = await api.get('/candidates/dashboard/stats');
-        if (statsRes.data.success) {
-          // If we connected successfully, check server state. Mongoose checks are handled by the controller
-          // If the stats return successfully, we can probe readyState
-        }
       } catch (err) {
         console.error('Error fetching global settings', err);
       } finally {
@@ -205,6 +199,26 @@ const Settings = () => {
       }
     };
     fetchSettings();
+  }, []);
+
+  // Probe live system status: the API responding at all means the server is up;
+  // the body tells us the real database type + connectivity.
+  useEffect(() => {
+    const fetchHealth = async () => {
+      try {
+        const res = await api.get('/health');
+        const db = res.data?.database || {};
+        setDbState({
+          serverOk: true,
+          connected: !!db.connected,
+          type: db.type || 'Unknown',
+        });
+      } catch (err) {
+        // No response → the API server itself is unreachable.
+        setDbState({ serverOk: false, connected: false, type: 'Unreachable' });
+      }
+    };
+    fetchHealth();
   }, []);
 
   const showStatus = (type, message) => {
@@ -966,9 +980,15 @@ const Settings = () => {
                   </div>
                   <div>
                     <span className="text-[9.5px] font-bold text-slate-400 uppercase block">API Server Status</span>
-                    <span className="text-xs font-bold text-emerald-500 flex items-center">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5 animate-pulse" /> Active
-                    </span>
+                    {dbState.serverOk ? (
+                      <span className="text-xs font-bold text-emerald-500 flex items-center">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5 animate-pulse" /> Active
+                      </span>
+                    ) : (
+                      <span className="text-xs font-bold text-rose-500 flex items-center">
+                        <span className="w-1.5 h-1.5 rounded-full bg-rose-500 mr-1.5" /> Offline
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -978,8 +998,11 @@ const Settings = () => {
                   </div>
                   <div>
                     <span className="text-[9.5px] font-bold text-slate-400 uppercase block">Active Database</span>
-                    <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                      In-Memory Store
+                    <span className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center">
+                      <span
+                        className={`w-1.5 h-1.5 rounded-full mr-1.5 ${dbState.connected ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`}
+                      />
+                      {dbState.type}
                     </span>
                   </div>
                 </div>
@@ -996,17 +1019,6 @@ const Settings = () => {
                   </div>
                 </div>
 
-              </div>
-
-              {/* Account note (demo/seed data removed) */}
-              <div className="space-y-2">
-                <span className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center">
-                  <Key size={13} className="text-brand-500 mr-2" /> Accounts
-                </span>
-                <div className="p-3 bg-slate-50/50 dark:bg-slate-900/30 border border-slate-200/50 dark:border-darkBorder/40 rounded-xl text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
-                  No demo accounts are pre-seeded. New accounts are created by an Admin in <strong className="text-slate-700 dark:text-slate-300">User Management</strong>; public sign-up is disabled.
-                  In the in-memory store, accounts and records persist until the server restarts.
-                </div>
               </div>
             </div>
           )}

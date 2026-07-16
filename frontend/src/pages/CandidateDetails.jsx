@@ -397,6 +397,9 @@ const CandidateDetails = () => {
     { label: 'Organization Culture Fit', value: aiAnalysis?.cultureFitScore, expl: aiAnalysis?.explanations?.cultureFit },
   ];
 
+  const hasQuiz = candidate.quizResult?.answers?.length > 0 || candidate.quizResult?.score != null;
+  const hasScreening = candidate.screeningAnswers?.length > 0;
+
   return (
     <div className="space-y-3 animate-in fade-in duration-300">
 
@@ -465,7 +468,7 @@ const CandidateDetails = () => {
             <button
               type="button"
               onClick={openResume}
-              className="flex items-center justify-center space-x-1.5 px-3 py-2 border border-slate-200 dark:border-darkBorder hover:bg-slate-50 dark:hover:bg-slate-800/50 text-slate-600 dark:text-slate-300 rounded-xl text-xs font-semibold transition flex-1 sm:flex-initial text-center"
+              className="flex items-center justify-center space-x-1.5 px-3 py-2 border border-slate-200 dark:border-darkBorder hover:bg-slate-50 dark:hover:bg-slate-800/50 text-slate-600 dark:text-slate-300 rounded-xl text-xs font-semibold transition flex-1 sm:flex-initial text-center cursor-pointer"
             >
               <FileText size={14} />
               <span>Download CV</span>
@@ -475,7 +478,7 @@ const CandidateDetails = () => {
           <select
             value={candidate.status}
             onChange={(e) => handleStatusChange(e.target.value)}
-            className="h-10 px-3 border border-slate-200 dark:border-darkBorder rounded-xl bg-white dark:bg-slate-900 text-xs text-slate-700 dark:text-slate-300 focus:outline-none flex-1 sm:flex-initial min-w-[120px]"
+            className="h-10 px-3 border border-slate-200 dark:border-darkBorder rounded-xl bg-white dark:bg-slate-900 text-xs text-slate-700 dark:text-slate-300 focus:outline-none flex-1 sm:flex-initial min-w-[120px] cursor-pointer"
           >
             <option value="Applied">Applied</option>
             <option value="Screening">Screening</option>
@@ -494,17 +497,17 @@ const CandidateDetails = () => {
                 type="button"
                 onClick={() => setDeleteMenuOpen(!deleteMenuOpen)}
                 disabled={deleting}
-                className="flex items-center justify-center h-10 w-10 border border-slate-200 dark:border-darkBorder hover:bg-slate-50 dark:hover:bg-slate-800/50 text-slate-500 hover:text-rose-600 rounded-xl transition"
+                className="flex items-center justify-center h-10 w-10 border border-slate-200 dark:border-darkBorder hover:bg-slate-50 dark:hover:bg-slate-800/50 text-slate-500 hover:text-rose-600 rounded-xl transition cursor-pointer"
                 title="More delete options"
               >
                 {deleting ? <Loader2 size={14} className="animate-spin text-rose-500" /> : <MoreVertical size={16} />}
               </button>
               {deleteMenuOpen && (
-                <div className="absolute right-0 mt-2 w-56 origin-top-right rounded-xl bg-white dark:bg-darkCard border border-slate-200 dark:border-darkBorder shadow-lg z-50 py-1.5">
+                <div className="absolute right-0 mt-2 w-56 origin-top-right rounded-xl bg-white dark:bg-darkCard border border-slate-200 dark:border-darkBorder shadow-lg z-50 py-1.5 cursor-pointer">
                   <button
                     type="button"
                     onClick={() => { setDeleteMenuOpen(false); handleDeleteCandidate(); }}
-                    className="w-full text-left px-4 py-2.5 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition flex items-start gap-2.5"
+                    className="w-full text-left px-4 py-2.5 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition flex items-start gap-2.5 cursor-pointer"
                   >
                     <Trash2 size={13} className="text-slate-400 mt-0.5 shrink-0" />
                     <div>
@@ -516,7 +519,7 @@ const CandidateDetails = () => {
                   <button
                     type="button"
                     onClick={() => { setDeleteMenuOpen(false); handleDeletePerson(); }}
-                    className="w-full text-left px-4 py-2.5 text-xs text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-500/10 transition flex items-start gap-2.5"
+                    className="w-full text-left px-4 py-2.5 text-xs text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-500/10 transition flex items-start gap-2.5 cursor-pointer"
                   >
                     <AlertTriangle size={13} className="text-rose-500 mt-0.5 shrink-0" />
                     <div>
@@ -613,7 +616,7 @@ const CandidateDetails = () => {
       <div className="flex flex-wrap items-center gap-2 no-print">
         <button
           onClick={handlePrint}
-          className="flex items-center space-x-1.5 px-3 py-2 border border-slate-200 dark:border-darkBorder hover:bg-slate-50 dark:hover:bg-slate-800/50 text-slate-600 dark:text-slate-300 rounded-xl text-xs font-semibold transition"
+          className="flex items-center space-x-1.5 px-3 py-2 border border-slate-200 dark:border-darkBorder hover:bg-slate-50 dark:hover:bg-slate-800/50 text-slate-600 dark:text-slate-300 rounded-xl text-xs font-semibold transition cursor-pointer"
         >
           <Printer size={14} />
           <span>Print / PDF</span>
@@ -623,7 +626,7 @@ const CandidateDetails = () => {
           <button
             onClick={handleExport}
             title="Download all data held for this candidate (GDPR subject-access request)"
-            className="flex items-center space-x-1.5 px-3 py-2 border border-slate-200 dark:border-darkBorder hover:bg-slate-50 dark:hover:bg-slate-800/50 text-slate-600 dark:text-slate-300 rounded-xl text-xs font-semibold transition"
+            className="flex items-center space-x-1.5 px-3 py-2 border border-slate-200 dark:border-darkBorder hover:bg-slate-50 dark:hover:bg-slate-800/50 text-slate-600 dark:text-slate-300 rounded-xl text-xs font-semibold transition cursor-pointer"
           >
             <FileText size={14} />
             <span>Export Data</span>
@@ -637,7 +640,7 @@ const CandidateDetails = () => {
                 onClick={handleReanalyze}
                 disabled={reanalyzing}
                 title="Re-download the resume and re-score it against the current job"
-                className="flex items-center space-x-1.5 px-3 py-2 border border-slate-200 dark:border-darkBorder hover:bg-slate-50 dark:hover:bg-slate-800/50 text-slate-600 dark:text-slate-300 rounded-xl text-xs font-semibold transition disabled:opacity-50"
+                className="flex items-center space-x-1.5 px-3 py-2 border border-slate-200 dark:border-darkBorder hover:bg-slate-50 dark:hover:bg-slate-800/50 text-slate-600 dark:text-slate-300 rounded-xl text-xs font-semibold transition disabled:opacity-50 cursor-pointer"
               >
                 {reanalyzing ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
                 <span>{reanalyzing ? 'Re-analyzing…' : 'Re-run AI Analysis'}</span>
@@ -651,7 +654,7 @@ const CandidateDetails = () => {
                 onChange={(e) => handleMoveJob(e.target.value)}
                 disabled={moving}
                 title="Move candidate to another job"
-                className="bg-transparent text-xs font-semibold text-slate-600 dark:text-slate-300 focus:outline-none disabled:opacity-50 py-1"
+                className="bg-transparent text-xs font-semibold text-slate-600 dark:text-slate-300 focus:outline-none disabled:opacity-50 py-1 cursor-pointer"
               >
                 <option value={candidate.jobId?._id || ''}>{moving ? 'Moving…' : `Job: ${candidate.jobId?.title || 'Unknown'}`}</option>
                 {jobs.filter((j) => j._id !== candidate.jobId?._id).map((j) => (
@@ -827,12 +830,37 @@ const CandidateDetails = () => {
               <button
                 type="submit"
                 disabled={addingNote || !newNote.trim()}
-                className="px-4.5 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white rounded-xl flex items-center justify-center transition shadow-sm"
+                className="px-4.5 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 text-white rounded-xl flex items-center justify-center transition shadow-sm cursor-pointer"
               >
                 {addingNote ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
               </button>
             </form>
           </div>
+
+          {/* Application screening responses (public applicants) */}
+          {hasScreening && (
+            <div className="p-4 bg-white dark:bg-darkCard border border-slate-200/60 dark:border-darkBorder rounded-xl shadow-premium dark:shadow-premium-dark space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-100 dark:border-darkBorder/40 pb-2">
+                <h3 className="text-xs font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-widest flex items-center">
+                  <MessageSquare size={14} className="mr-2 text-brand-500" /> Application Responses
+                </h3>
+              </div>
+              <div className="space-y-3.5 max-h-[400px] overflow-y-auto pr-1">
+                {candidate.screeningAnswers.map((qa, idx) => (
+                  <div key={idx} className="p-3 bg-slate-50/60 dark:bg-slate-900/40 border border-slate-200/60 dark:border-darkBorder rounded-xl space-y-2.5">
+                    <p className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-start gap-2">
+                      <span className="flex-shrink-0 w-5 h-5 rounded-full bg-brand-500/10 text-brand-600 dark:text-brand-400 text-[10px] font-bold flex items-center justify-center mt-0.5">Q</span>
+                      <span className="flex-1 mt-0.5">{qa.question}</span>
+                    </p>
+                    <div className="text-xs text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-950 p-3 rounded-lg border border-slate-200/50 dark:border-darkBorder/40 leading-relaxed whitespace-pre-line flex items-start gap-2">
+                      <span className="flex-shrink-0 w-5 h-5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold flex items-center justify-center mt-0.5">A</span>
+                      <span className="flex-1 mt-0.5">{qa.answer || <span className="italic text-slate-400">No answer provided</span>}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Middle/Right columns: parsed lists & notes */}
@@ -1024,7 +1052,7 @@ const CandidateDetails = () => {
               {canManage && (
                 <button
                   onClick={() => setShowInterviewForm((s) => !s)}
-                  className="flex items-center space-x-1 text-[11px] font-semibold text-brand-500 hover:text-brand-600 transition"
+                  className="flex items-center space-x-1 text-[11px] font-semibold text-brand-500 hover:text-brand-600 transition cursor-pointer"
                 >
                   {showInterviewForm ? <X size={13} /> : <Plus size={13} />}
                   <span>{showInterviewForm ? 'Cancel' : 'Schedule'}</span>
@@ -1134,66 +1162,66 @@ const CandidateDetails = () => {
             </div>
           </div>
 
-          {/* Screening quiz result */}
-          {(candidate.quizResult?.answers?.length > 0 || candidate.quizResult?.score != null) && (
-            <div className="p-4 bg-white dark:bg-darkCard border border-slate-200/60 dark:border-darkBorder rounded-xl shadow-premium dark:shadow-premium-dark space-y-3">
-              <div className="flex items-center justify-between flex-wrap gap-2">
-                <h3 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest flex items-center">
+
+
+
+        </div>
+
+        {/* Screening quiz result - Full Width */}
+        {hasQuiz && (
+          <div className="lg:col-span-3">
+            <div className="p-4 bg-white dark:bg-darkCard border border-slate-200/60 dark:border-darkBorder rounded-xl shadow-premium dark:shadow-premium-dark space-y-4">
+              <div className="flex items-center justify-between flex-wrap gap-2 border-b border-slate-100 dark:border-darkBorder/40 pb-2">
+                <h3 className="text-xs font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-widest flex items-center">
                   <ClipboardList size={14} className="mr-2 text-brand-500" /> Screening Quiz
                 </h3>
                 <div className="flex items-center gap-2">
                   {candidate.quizResult.score != null && (
-                    <span className={`text-sm font-black px-2.5 py-0.5 rounded-lg border ${scoreBox(candidate.quizResult.score)} ${scoreText(candidate.quizResult.score)}`}>
+                    <span className={`text-xs font-black px-2.5 py-0.5 rounded-lg border ${scoreBox(candidate.quizResult.score)} ${scoreText(candidate.quizResult.score)}`}>
                       {candidate.quizResult.score}% <span className="text-[10px] font-semibold opacity-70">({candidate.quizResult.correct}/{candidate.quizResult.totalScored})</span>
                     </span>
                   )}
                   {candidate.quizResult.tabSwitches > 0 && (
-                    <span title="Times the applicant left the tab during the quiz" className="inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 border border-amber-500/20">
+                    <span title="Times the applicant left the tab during the quiz" className="inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
                       <AlertTriangle size={10} /> {candidate.quizResult.tabSwitches} tab-switch{candidate.quizResult.tabSwitches > 1 ? 'es' : ''}
                     </span>
                   )}
                 </div>
               </div>
-              <div className="space-y-2">
+              <div className={`grid grid-cols-1 ${candidate.quizResult.answers.length > 1 ? 'md:grid-cols-2' : ''} gap-3.5 max-h-[400px] overflow-y-auto pr-1`}>
                 {(candidate.quizResult.answers || []).map((qa, idx) => (
-                  <div key={idx} className={`p-3 rounded-xl border ${qa.type === 'mcq' ? (qa.correct ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-rose-500/5 border-rose-500/20') : 'bg-slate-50 dark:bg-slate-900/40 border-slate-200/50 dark:border-darkBorder/40'}`}>
-                    <p className="text-[11px] font-bold text-slate-700 dark:text-slate-300">{idx + 1}. {qa.question}</p>
+                  <div key={idx} className={`p-3.5 rounded-xl border ${qa.type === 'mcq' ? (qa.correct ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-rose-500/5 border-rose-500/20') : 'bg-slate-50 dark:bg-slate-900/40 border-slate-200/50 dark:border-darkBorder/40'} space-y-2`}>
+                    <p className="text-xs font-bold text-slate-800 dark:text-slate-200">{idx + 1}. {qa.question}</p>
                     {qa.type === 'mcq' ? (
-                      <div className="mt-1 text-[11px] space-y-0.5">
-                        <p className={qa.correct ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}>
-                          {qa.correct ? <CheckCircle size={11} className="inline mr-1" /> : <XCircle size={11} className="inline mr-1" />}
-                          Answered: <span className="font-semibold">{qa.answerText || '—'}</span>
-                        </p>
-                        {!qa.correct && <p className="text-slate-500">Correct: <span className="font-semibold">{qa.correctAnswer}</span></p>}
+                      <div className="space-y-2">
+                        <div className={`flex items-start gap-2 text-xs px-3 py-2 rounded-lg border ${qa.correct ? 'text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 dark:bg-emerald-500/20 border-emerald-500/20' : 'text-rose-700 dark:text-rose-400 bg-rose-500/10 dark:bg-rose-500/20 border-rose-500/20'}`}>
+                          {qa.correct ? <CheckCircle size={14} className="mt-0.5 flex-shrink-0" /> : <XCircle size={14} className="mt-0.5 flex-shrink-0" />}
+                          <div>
+                            <span className="font-semibold text-[9px] uppercase tracking-wider block opacity-70">Answered</span>
+                            <span className="font-bold">{qa.answerText || '—'}</span>
+                          </div>
+                        </div>
+                        {!qa.correct && (
+                          <div className="flex items-start gap-2 text-xs text-emerald-700 dark:text-emerald-400 bg-emerald-500/5 dark:bg-emerald-500/10 px-3 py-2 rounded-lg border border-emerald-500/10">
+                            <CheckCircle size={14} className="mt-0.5 flex-shrink-0" />
+                            <div>
+                              <span className="font-semibold text-[9px] uppercase tracking-wider block opacity-70">Correct Answer</span>
+                              <span className="font-bold">{qa.correctAnswer}</span>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     ) : (
-                      <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-1 whitespace-pre-line">{qa.answerText || <span className="italic text-slate-400">No answer</span>}</p>
+                      <div className="text-xs text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-950 p-3 rounded-lg border border-slate-200/50 dark:border-darkBorder/40 leading-relaxed whitespace-pre-line">
+                        {qa.answerText || <span className="italic text-slate-400">No answer submitted</span>}
+                      </div>
                     )}
                   </div>
                 ))}
               </div>
             </div>
-          )}
-
-          {/* Application screening responses (public applicants) */}
-          {candidate.screeningAnswers?.length > 0 && (
-            <div className="p-4 bg-white dark:bg-darkCard border border-slate-200/60 dark:border-darkBorder rounded-xl shadow-premium dark:shadow-premium-dark space-y-3">
-              <h3 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest flex items-center">
-                <MessageSquare size={14} className="mr-2 text-brand-500" /> Application Responses
-              </h3>
-              <div className="space-y-3">
-                {candidate.screeningAnswers.map((qa, idx) => (
-                  <div key={idx} className="p-3 bg-slate-50 dark:bg-slate-900/40 border border-slate-200/50 dark:border-darkBorder/40 rounded-xl">
-                    <p className="text-[11px] font-bold text-slate-700 dark:text-slate-300">{qa.question}</p>
-                    <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 leading-relaxed whitespace-pre-line">{qa.answer || <span className="italic text-slate-400">No answer</span>}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-
-        </div>
+          </div>
+        )}
 
       </div>
 

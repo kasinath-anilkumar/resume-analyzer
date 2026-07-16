@@ -25,6 +25,28 @@
   body.dark {
     @apply bg-darkBg text-slate-200;
   }
+
+  /* Tailwind v4's Preflight no longer sets a pointer cursor on buttons the way
+     v3 did. Restore it for every clickable control app-wide (a Tailwind
+     `cursor-*` utility still overrides this since utilities beat the base layer). */
+  button:not(:disabled),
+  [role='button']:not(:disabled),
+  [type='button']:not(:disabled),
+  [type='submit']:not(:disabled),
+  [type='reset']:not(:disabled),
+  select:not(:disabled),
+  [role='option'],
+  [role='menuitem'],
+  label[for],
+  summary {
+    cursor: pointer;
+  }
+
+  button:disabled,
+  select:disabled,
+  [role='button'][aria-disabled='true'] {
+    cursor: not-allowed;
+  }
 }
 
 /* Print / "Save as PDF": drop the app chrome (sidebar, top bar, floating
@@ -248,6 +270,101 @@ html[data-theme-transition='to-light']::view-transition-new(root) {
 
 .animate-nav-fade-in {
   animation: navFadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* =========================================================================
+   Native-app mobile UX (PWA)
+   Makes the web app feel like an installed native app: no tap flash, no pinch
+   text-resize, no rubber-band bounce / pull-to-refresh, momentum scrolling,
+   no accidental text/image drag, and the layout pinned to the viewport.
+   These live OUTSIDE @layer so they win over Tailwind's utility layer.
+   ========================================================================= */
+
+/* Kill the grey/blue highlight box that flashes when you tap anything. */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+html {
+  /* Stop iOS from auto-inflating font sizes on orientation change. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  /* Smooth animated scrolling for in-page anchor jumps. */
+  scroll-behavior: smooth;
+  height: 100%;
+}
+
+/* Pin the app to the viewport with no over-scroll bounce or pull-to-refresh.
+   Only html/body are pinned — actual scrolling happens INSIDE the app's own
+   scroll panes (e.g. the dashboard <main>), so public pages that scroll the
+   document naturally still grow and scroll. */
+body {
+  min-height: 100%;
+  overscroll-behavior: none;
+  /* Prevent accidental text selection when tapping / long-pressing UI chrome. */
+  -webkit-user-select: none;
+  user-select: none;
+  /* Suppress the iOS long-press callout (copy / share) bubble on the shell. */
+  -webkit-touch-callout: none;
+}
+
+#root {
+  min-height: 100%;
+}
+
+/* Re-enable selection + the copy callout where it genuinely matters. Add the
+   `.selectable` class to any text a user should be able to select/copy
+   (e.g. a candidate's email or phone number shown as plain text). */
+input,
+textarea,
+select,
+[contenteditable='true'],
+.selectable,
+.selectable * {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
+
+/* Images: no drag ghost, no long-press save/callout — behaves like a native UI. */
+img {
+  -webkit-user-drag: none;
+  -webkit-touch-callout: none;
+  user-select: none;
+}
+
+/* Momentum (native) scrolling + no scroll-chaining out of app scroll panes. */
+.overflow-auto,
+.overflow-y-auto,
+.overflow-x-auto,
+.overflow-y-scroll,
+.overflow-x-scroll,
+main {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+/* When launched as an installed PWA, keep scrollable content clear of the
+   home indicator / rounded bottom edge. */
+@media (display-mode: standalone) {
+  main {
+    padding-bottom: calc(0.5rem + env(safe-area-inset-bottom));
+  }
+}
+
+/* Honour "reduce motion": drop smooth scroll and near-instant all animation. */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 

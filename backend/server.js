@@ -163,6 +163,32 @@ app.get('/', (req, res) => {
   res.json({ message: 'Enterprise ATS API is running...' });
 });
 
+// Liveness + real database status. Public (no auth) so uptime monitors and the
+// Settings "system status" cards can read it. Reports whether Supabase is
+// configured AND actually reachable via a cheap head-count probe on the
+// single-row settings table. Always responds 200 so the client can read the
+// body on one success path; `ok` reflects real DB reachability.
+app.get('/api/health', async (req, res) => {
+  const { isConfigured, getClient } = require('./config/supabase');
+  const database = { type: 'Supabase (Postgres)', configured: isConfigured(), connected: false };
+
+  if (database.configured) {
+    try {
+      const probe = getClient().from('settings').select('id', { count: 'exact', head: true });
+      const timeout = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('db probe timeout')), 3000)
+      );
+      const { error } = await Promise.race([probe, timeout]);
+      if (error) throw error;
+      database.connected = true;
+    } catch (_) {
+      database.connected = false;
+    }
+  }
+
+  res.json({ ok: database.connected, uptime: Math.round(process.uptime()), database });
+});
+
 // Global Error Handler
 app.use((err, req, res, next) => {
   console.error('Server error:', err);

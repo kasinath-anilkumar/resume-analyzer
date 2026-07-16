@@ -108,7 +108,7 @@ const DashboardLayout = () => {
   const allowedNavItems = navItems.filter(item => item.roles.includes(user?.role));
 
   return (
-    <div className="h-screen flex overflow-hidden bg-slate-50 dark:bg-darkBg transition-colors duration-200">
+    <div className="h-dvh flex overflow-hidden bg-slate-50 dark:bg-darkBg transition-colors duration-200">
       {/* Mobile Sidebar Overlay */}
       {sidebarOpen && (
         <div
@@ -120,7 +120,7 @@ const DashboardLayout = () => {
       {/* Sidebar Component */}
       <aside
         className={`fixed inset-y-0 left-0 z-50 flex flex-col w-64 border-r border-slate-200 dark:border-darkBorder bg-white dark:bg-darkCard transition-transform duration-300 transform lg:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-          } lg:static lg:h-screen`}
+          } lg:static lg:h-dvh`}
       >
         {/* Sidebar Header */}
         <div className="flex items-center justify-between h-14 px-4 border-b border-slate-200 dark:border-darkBorder">
@@ -196,7 +196,7 @@ const DashboardLayout = () => {
       </aside>
 
       {/* Main Content Pane */}
-      <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
+      <div className="flex-1 flex flex-col min-w-0 h-dvh overflow-hidden">
         {/* Top Header */}
         <header className="flex items-center justify-between h-14 px-4 lg:px-6 bg-white dark:bg-darkCard border-b border-slate-200 dark:border-darkBorder sticky top-0 z-30">
           {/* Menu toggles */}

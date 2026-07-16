@@ -15,6 +15,10 @@ const sanitizeSettings = (settings, isAdmin) => {
     departments: settings.departments || [],
     locations: settings.locations || [],
     minAiScore: settings.minAiScore,
+    // Non-sensitive availability flag: whether résumé analysis is usable. All
+    // roles need this (e.g. Recruiters on the Upload page gate on it) — the raw
+    // key and its masked hint below stay Admin-only.
+    aiKeyConfigured: !!settings.aiApiKey,
     updatedBy: settings.updatedBy,
     createdAt: settings.createdAt,
     updatedAt: settings.updatedAt,

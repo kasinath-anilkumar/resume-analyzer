@@ -3,7 +3,23 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Lock the viewport: fit device width, no pinch/double-tap zoom, extend under notches. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+
+    <!-- PWA: installable, launches full-screen (standalone) -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="application-name" content="Parakkat ATS" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Parakkat ATS" />
+    <!-- iOS home-screen icon. For a pixel-crisp iOS icon, drop a 180x180 PNG at
+         public/apple-touch-icon.png and point this at it. -->
+    <link rel="apple-touch-icon" href="/app-icon.svg" />
+    <!-- Browser UI / status-bar tint, matched to light & dark themes. -->
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0b0f19" media="(prefers-color-scheme: dark)" />
+
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <title>Enterprise AI ATS | AI-Powered Applicant Tracking System</title>
