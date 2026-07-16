@@ -1,6 +1,9 @@
 const express = require('express');
 const router = express.Router();
-const { listJobs, getJob, apply, getLeadByToken, submitLeadResume } = require('../controllers/publicController');
+const {
+  listJobs, getJob, apply, getLeadByToken, submitLeadResume,
+  verifyWhatsAppWebhook, receiveWhatsAppWebhook,
+} = require('../controllers/publicController');
 const upload = require('../middleware/upload');
 const { applyLimiter, applyBurstLimiter, publicReadLimiter } = require('../middleware/rateLimit');
 const { attachApplicant } = require('../middleware/auth');
@@ -16,5 +19,10 @@ router.post('/apply', applyBurstLimiter, applyLimiter, attachApplicant, upload.s
 // Meta-lead résumé upload (the personal WhatsApp link). Token is the credential.
 router.get('/lead/:token', publicReadLimiter, getLeadByToken);
 router.post('/lead/:token/resume', applyBurstLimiter, applyLimiter, upload.single('resume'), upload.validateResumeContent, submitLeadResume);
+
+// WhatsApp Business webhook — inbound résumé replies. GET = Meta's verification
+// handshake (verify token); POST = events, authenticated by the HMAC signature.
+router.get('/whatsapp/webhook', verifyWhatsAppWebhook);
+router.post('/whatsapp/webhook', receiveWhatsAppWebhook);
 
 module.exports = router;

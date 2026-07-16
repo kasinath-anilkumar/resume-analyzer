@@ -116,6 +116,23 @@ const jobLookup = async (jobIds, fields) => {
   return map;
 };
 
+// PostgREST returns at most 1000 rows per request (even with a larger .limit or
+// .range). Page through with .range() so full-table reads — stats, analytics,
+// the full lead list, per-job dedup — see EVERY row, not just the first 1000.
+// `build` must return a FRESH query builder (with a stable .order) each call.
+const PG_PAGE = 1000;
+async function fetchAllRows(build) {
+  const out = [];
+  for (let from = 0; from <= 2000000; from += PG_PAGE) {
+    const { data, error } = await build().range(from, from + PG_PAGE - 1);
+    if (error) throw error;
+    const batch = data || [];
+    out.push(...batch);
+    if (batch.length < PG_PAGE) break;
+  }
+  return out;
+}
+
 const CandidateRepo = {
   toApi,
 
@@ -127,6 +144,21 @@ const CandidateRepo = {
       .single();
     if (error) throw error;
     return toApi(created);
+  },
+
+  // Bulk-insert many candidates in one round-trip. Returns a light shape with the
+  // fields the lead-import flow needs (id, name, phone, résumé url + upload token).
+  async createMany(list) {
+    if (!Array.isArray(list) || !list.length) return [];
+    const { data, error } = await getClient()
+      .from(TABLE)
+      .insert(list.map(toRow))
+      .select('id, name, phone, resume_url, resume_upload_token, job_id');
+    if (error) throw error;
+    return (data || []).map((r) => ({
+      _id: r.id, name: r.name, phone: r.phone || '', jobId: r.job_id,
+      resumeUrl: r.resume_url, resumeUploadToken: r.resume_upload_token,
+    }));
   },
 
   // List with populated jobId ({_id,title,department}). jobId/status are pushed
@@ -698,6 +730,54 @@ const CandidateRepo = {
     return data ? toApi(data) : null;
   },
 
+  // Find the lead candidate a WhatsApp résumé reply belongs to, by sender phone.
+  // Scans only the small "awaiting a résumé" subset (résumé null, source Lead/Sheet)
+  // and matches on digits — exact first, then last-10-digit suffix (handles a
+  // stored "+91 98765 43210" vs an inbound "919876543210"). Most-recent wins.
+  async findPendingLeadByPhone(rawPhone) {
+    const norm = (p) => String(p || '').replace(/\D/g, '');
+    const target = norm(rawPhone);
+    if (!target) return null;
+    const { data, error } = await getClient()
+      .from(TABLE)
+      .select('id, name, phone, job_id, resume_upload_token')
+      .is('resume_url', null)
+      .is('deleted_at', null)
+      .in('source', ['Lead', 'Sheet'])
+      .order('resume_requested_at', { ascending: false, nullsFirst: false })
+      .order('created_at', { ascending: false })
+      .limit(500);
+    if (error) throw error;
+    const rows = data || [];
+    const tsuf = target.slice(-10);
+    let m = rows.find((r) => norm(r.phone) === target);
+    if (!m && tsuf.length >= 8) m = rows.find((r) => norm(r.phone).slice(-10) === tsuf);
+    if (!m) return null;
+    return { _id: m.id, name: m.name, jobId: m.job_id, resumeUploadToken: m.resume_upload_token };
+  },
+
+  // Attach a résumé to a lead by id and REQUEUE analysis. Idempotent: only fills
+  // an EMPTY résumé slot (resume_url is null), so a duplicate inbound message
+  // can't overwrite an already-received résumé or re-queue paid analysis.
+  async attachResumeById(id, resumeUrl) {
+    const { data, error } = await getClient()
+      .from(TABLE)
+      .update({
+        resume_url: resumeUrl,
+        analysis_status: 'pending',
+        analysis_error: null,
+        resume_submitted_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .is('resume_url', null)
+      .is('deleted_at', null)
+      .select('*')
+      .maybeSingle();
+    if (error) throw error;
+    return data ? toApi(data) : null;
+  },
+
   // Mark that the résumé-request WhatsApp message was sent.
   async markResumeRequested(id) {
     const { error } = await getClient()
@@ -708,8 +788,91 @@ const CandidateRepo = {
     return true;
   },
 
+  // List automation leads (source Lead / Sheet) for the Leads section — newest
+  // first, job title populated, a light projection (no résumé body / skills).
+  async listLeads({ jobId, source } = {}) {
+    const rows = await fetchAllRows(() => {
+      let q = getClient()
+        .from(TABLE)
+        .select('id, name, email, phone, source, resume_url, analysis_status, resume_requested_at, resume_submitted_at, ai_analysis, job_id, created_at')
+        .is('deleted_at', null)
+        .in('source', ['Lead', 'Sheet']);
+      if (jobId) q = q.eq('job_id', jobId);
+      if (source === 'Lead' || source === 'Sheet') q = q.eq('source', source);
+      return q.order('created_at', { ascending: false }).order('id', { ascending: true });
+    });
+    const jobs = await jobLookup(rows.map((r) => r.job_id), ['title', 'department']);
+    return rows.map((r) => {
+      const ai = r.ai_analysis && typeof r.ai_analysis === 'object' ? r.ai_analysis : {};
+      return {
+        _id: r.id,
+        name: r.name,
+        email: r.email,
+        phone: r.phone || '',
+        source: r.source,
+        hasResume: !!r.resume_url,
+        analysisStatus: r.analysis_status || 'completed',
+        overallScore: ai.overallScore ?? null,
+        verdict: ai.verdict || ai.recommendation || '',
+        resumeRequestedAt: r.resume_requested_at || null,
+        resumeSubmittedAt: r.resume_submitted_at || null,
+        job: jobs[String(r.job_id)] || null,
+        createdAt: r.created_at,
+      };
+    });
+  },
+
+  // Minimal fields needed to (re)send a lead's résumé-request over WhatsApp.
+  async findLeadForResend(id) {
+    const { data, error } = await getClient()
+      .from(TABLE)
+      .select('id, name, phone, job_id, resume_url, resume_upload_token, source')
+      .eq('id', id)
+      .is('deleted_at', null)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) return null;
+    return {
+      _id: data.id, name: data.name, phone: data.phone || '', jobId: data.job_id,
+      resumeUrl: data.resume_url, resumeUploadToken: data.resume_upload_token, source: data.source,
+    };
+  },
+
   // Has this email already applied to this job? Used to block duplicate public
   // applications to the same role.
+  // Existing email/phone/job pairs across the given jobs — used to dedup a bulk
+  // lead import in ONE query (instead of a query per row), keyed per job.
+  async listIdentitiesForJobs(jobIds) {
+    const ids = [...new Set((jobIds || []).filter(Boolean).map(String))];
+    if (!ids.length) return [];
+    return fetchAllRows(() =>
+      getClient()
+        .from(TABLE)
+        .select('email, phone, job_id')
+        .in('job_id', ids)
+        .is('deleted_at', null)
+        .order('id', { ascending: true })
+    );
+  },
+
+  // Leads still awaiting a résumé (no résumé yet) with a phone — for a bulk
+  // WhatsApp résumé-request send. Optionally scoped to one job.
+  async listLeadsAwaitingResume(jobId) {
+    const data = await fetchAllRows(() => {
+      let q = getClient()
+        .from(TABLE)
+        .select('id, name, phone, job_id, resume_upload_token')
+        .is('resume_url', null)
+        .is('deleted_at', null)
+        .in('source', ['Lead', 'Sheet']);
+      if (jobId) q = q.eq('job_id', jobId);
+      return q.order('created_at', { ascending: false }).order('id', { ascending: true });
+    });
+    return data
+      .filter((r) => r.phone && r.resume_upload_token)
+      .map((r) => ({ _id: r.id, name: r.name, phone: r.phone, jobId: r.job_id, resumeUploadToken: r.resume_upload_token }));
+  },
+
   async existsForJobEmail(jobId, email) {
     const e = String(email || '').toLowerCase();
     if (!jobId || !e) return false;
@@ -833,12 +996,34 @@ const CandidateRepo = {
   },
 
   // Minimal projection for dashboard aggregation.
+  // Exact per-stage candidate counts for a job's pipeline board — one indexed
+  // count per stage, in parallel. Accurate regardless of pool size (no 1000 cap,
+  // since counts don't return rows).
+  async stageCountsForJob(jobId, stages) {
+    if (!jobId || !Array.isArray(stages)) return {};
+    const entries = await Promise.all(
+      stages.map(async (s) => {
+        const { count, error } = await getClient()
+          .from(TABLE)
+          .select('id', { count: 'exact', head: true })
+          .eq('job_id', jobId)
+          .eq('status', s)
+          .is('deleted_at', null);
+        if (error) throw error;
+        return [s, count || 0];
+      })
+    );
+    return Object.fromEntries(entries);
+  },
+
   async allForStats() {
-    const { data, error } = await getClient()
-      .from(TABLE)
-      .select('id, job_id, status, skills, ai_analysis, created_at, updated_at')
-      .is('deleted_at', null);
-    if (error) throw error;
+    const data = await fetchAllRows(() =>
+      getClient()
+        .from(TABLE)
+        .select('id, job_id, status, skills, ai_analysis, created_at, updated_at')
+        .is('deleted_at', null)
+        .order('id', { ascending: true })
+    );
     return (data || []).map((r) => ({
       _id: r.id,
       jobId: r.job_id,
@@ -854,11 +1039,13 @@ const CandidateRepo = {
   // seniority, quiz score). Kept separate from allForStats so the existing
   // dashboard payload is untouched.
   async allForAnalytics() {
-    const { data, error } = await getClient()
-      .from(TABLE)
-      .select('id, job_id, status, source, ai_analysis, quiz_result, analysis_status, created_at, updated_at')
-      .is('deleted_at', null);
-    if (error) throw error;
+    const data = await fetchAllRows(() =>
+      getClient()
+        .from(TABLE)
+        .select('id, job_id, status, source, ai_analysis, quiz_result, analysis_status, created_at, updated_at')
+        .is('deleted_at', null)
+        .order('id', { ascending: true })
+    );
     return (data || []).map((r) => ({
       _id: r.id,
       jobId: r.job_id,

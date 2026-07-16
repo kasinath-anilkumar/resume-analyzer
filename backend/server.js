@@ -122,8 +122,15 @@ app.use(
   })
 );
 // Cap request bodies — no legitimate JSON payload here is large, and an
-// unbounded body is a cheap memory-pressure vector.
-app.use(express.json({ limit: '1mb' }));
+// unbounded body is a cheap memory-pressure vector. Stash the RAW bytes ONLY for
+// the WhatsApp webhook so its X-Hub-Signature-256 HMAC can be verified against
+// exactly what Meta signed (parsed+re-stringified JSON would not match).
+app.use(express.json({
+  limit: '1mb',
+  verify: (req, res, buf) => {
+    if ((req.originalUrl || req.url || '').includes('/whatsapp/webhook')) req.rawBody = buf;
+  },
+}));
 
 // Simple request logger
 app.use((req, res, next) => {

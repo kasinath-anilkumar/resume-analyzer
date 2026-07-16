@@ -28,6 +28,8 @@ const sanitizeSettings = (settings, isAdmin) => {
   const key = settings.aiApiKey || '';
   const metaToken = settings.metaAccessToken || '';
   const waToken = settings.whatsappAccessToken || '';
+  const waVerify = settings.whatsappVerifyToken || '';
+  const waSecret = settings.whatsappAppSecret || '';
   return {
     ...general,
     aiProvider: settings.aiProvider || 'mock',
@@ -45,6 +47,10 @@ const sanitizeSettings = (settings, isAdmin) => {
     whatsappTokenMasked: mask(waToken),
     whatsappPhoneNumberId: settings.whatsappPhoneNumberId || '',
     whatsappTemplateName: settings.whatsappTemplateName || '',
+    // Inbound webhook (candidate replies with the résumé in-chat).
+    whatsappInboundConfigured: !!(waVerify && waSecret),
+    whatsappVerifyTokenMasked: mask(waVerify),
+    whatsappAppSecretMasked: mask(waSecret),
   };
 };
 
@@ -132,13 +138,15 @@ exports.updateSettings = async (req, res) => {
       departments, locations, minAiScore, aiApiKey, aiModel, retentionDays,
       metaAccessToken, metaPageId, metaGraphVersion,
       whatsappAccessToken, whatsappPhoneNumberId, whatsappTemplateName,
+      whatsappVerifyToken, whatsappAppSecret,
     } = req.body;
 
     // Only an Admin may change the AI key/model, the data-retention policy, or the
     // Meta/WhatsApp integration credentials (all sensitive).
     const touchingMetaWa =
       typeof metaAccessToken === 'string' || metaPageId !== undefined || metaGraphVersion !== undefined ||
-      typeof whatsappAccessToken === 'string' || whatsappPhoneNumberId !== undefined || whatsappTemplateName !== undefined;
+      typeof whatsappAccessToken === 'string' || whatsappPhoneNumberId !== undefined || whatsappTemplateName !== undefined ||
+      typeof whatsappVerifyToken === 'string' || typeof whatsappAppSecret === 'string';
     const touchingAdminOnly =
       typeof aiApiKey === 'string' || typeof aiModel === 'string' || retentionDays !== undefined || touchingMetaWa;
     if (touchingAdminOnly && req.user.role !== 'Admin') {
@@ -205,6 +213,8 @@ exports.updateSettings = async (req, res) => {
     if (typeof whatsappAccessToken === 'string') patch.whatsappAccessToken = AIService.cleanKey(whatsappAccessToken);
     if (whatsappPhoneNumberId !== undefined) patch.whatsappPhoneNumberId = whatsappPhoneNumberId;
     if (whatsappTemplateName !== undefined) patch.whatsappTemplateName = whatsappTemplateName;
+    if (typeof whatsappVerifyToken === 'string') patch.whatsappVerifyToken = String(whatsappVerifyToken).trim();
+    if (typeof whatsappAppSecret === 'string') patch.whatsappAppSecret = AIService.cleanKey(whatsappAppSecret);
 
     const settings = await SettingsRepo.update(patch, req.user.id);
 
@@ -221,6 +231,8 @@ exports.updateSettings = async (req, res) => {
     if (typeof whatsappAccessToken === 'string') changed.push(patch.whatsappAccessToken ? 'WhatsApp token' : 'WhatsApp token cleared');
     if (whatsappPhoneNumberId !== undefined) changed.push('WhatsApp phone id');
     if (whatsappTemplateName !== undefined) changed.push('WhatsApp template');
+    if (typeof whatsappVerifyToken === 'string') changed.push(patch.whatsappVerifyToken ? 'WhatsApp verify token' : 'WhatsApp verify token cleared');
+    if (typeof whatsappAppSecret === 'string') changed.push(patch.whatsappAppSecret ? 'WhatsApp app secret' : 'WhatsApp app secret cleared');
     if (changed.length) {
       AuditRepo.log(req.user, 'settings.update', { entityType: 'settings', entityId: 'settings', summary: `Updated settings: ${changed.join(', ')}`, meta: { changed } });
     }

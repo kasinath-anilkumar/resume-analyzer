@@ -528,7 +528,7 @@ const Settings = () => {
   }
 
   return (
-    <div className="space-y-4 animate-in fade-in duration-300">
+    <div className="space-y-4 animate-in fade-in duration-300 lg:h-[calc(100vh-5rem)] lg:flex lg:flex-col lg:overflow-hidden">
 
       {/* Premium Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-4 bg-gradient-to-r from-brand-600 to-indigo-700 text-white rounded-2xl shadow-md relative overflow-hidden flex-shrink-0">
@@ -567,10 +567,10 @@ const Settings = () => {
       </div>
 
       {/* Grid containing Settings layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-3 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-3 items-start lg:items-stretch lg:flex-1 lg:min-h-0 lg:overflow-hidden">
 
         {/* Left Side Tab Navigation Column */}
-        <div className="lg:col-span-1 space-y-2">
+        <div className="lg:col-span-1 space-y-2 lg:h-full lg:overflow-y-auto lg:pr-1">
           <div className="bg-white dark:bg-darkCard border border-slate-200/60 dark:border-darkBorder rounded-2xl p-2 shadow-premium dark:shadow-premium-dark">
             <p className="hidden lg:block text-[9.5px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-widest px-2.5 py-1.5 animate-in fade-in">Settings Panels</p>
             <div className="flex lg:flex-col overflow-x-auto lg:overflow-x-visible gap-1.5 pb-2 lg:pb-0 scrollbar-none">
@@ -618,7 +618,7 @@ const Settings = () => {
         </div>
 
         {/* Right Side Settings Panel Area */}
-        <div className="lg:col-span-3 space-y-3">
+        <div className="lg:col-span-3 space-y-3 lg:h-full lg:overflow-y-auto lg:pr-2 lg:pb-4">
 
           {/* TAB 1: COMPANY METADATA PANEL */}
           {activeTab === 'metadata' && (

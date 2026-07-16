@@ -6,6 +6,8 @@ const AIService = require('../services/aiService');
 const StorageService = require('../services/storageService');
 const { scoreQuiz } = require('../services/quizScoring');
 const CandidateMatcher = require('../services/candidateMatcher');
+const WhatsApp = require('../services/whatsappService');
+const WhatsAppInbound = require('../services/whatsappInbound');
 
 const resolveAiConfig = async () => {
   try {
@@ -324,6 +326,46 @@ exports.getLeadByToken = async (req, res) => {
     console.error('Lead token lookup error:', error);
     return res.status(500).json({ success: false, message: 'Something went wrong. Please try again.' });
   }
+};
+
+// @desc    WhatsApp webhook verification handshake (Meta calls this once on setup)
+// @route   GET /api/public/whatsapp/webhook
+// @access  Public (Meta) — gated by the shared verify token
+exports.verifyWhatsAppWebhook = async (req, res) => {
+  try {
+    const mode = req.query['hub.mode'];
+    const token = req.query['hub.verify_token'];
+    const challenge = req.query['hub.challenge'];
+    const settings = await SettingsRepo.get();
+    if (mode === 'subscribe' && token && settings.whatsappVerifyToken && token === settings.whatsappVerifyToken) {
+      return res.status(200).send(String(challenge || ''));
+    }
+    return res.sendStatus(403);
+  } catch (err) {
+    console.error('WhatsApp webhook verify error:', err.message);
+    return res.sendStatus(403);
+  }
+};
+
+// @desc    WhatsApp inbound events — a lead replying with their résumé
+// @route   POST /api/public/whatsapp/webhook
+// @access  Public (Meta) — authenticated by X-Hub-Signature-256 HMAC
+exports.receiveWhatsAppWebhook = async (req, res) => {
+  let settings;
+  try {
+    settings = await SettingsRepo.get();
+  } catch (err) {
+    return res.sendStatus(200); // never make Meta retry on our DB hiccup
+  }
+  const sig = req.get('x-hub-signature-256');
+  if (!WhatsApp.verifyWebhookSignature(settings.whatsappAppSecret, req.rawBody, sig)) {
+    return res.sendStatus(403); // forged / unsigned — reject
+  }
+  // Ack immediately (Meta requires a fast 200 or it retries), then process out of band.
+  res.sendStatus(200);
+  WhatsAppInbound.handleWebhook(settings, req.body).catch((e) =>
+    console.error('[whatsapp inbound] webhook handling failed:', e.message)
+  );
 };
 
 // @desc    Attach a résumé to a Meta lead via its upload token → triggers analysis

@@ -49,12 +49,21 @@ const ApplicantRepo = {
 
   // Admin/recruiter listing of everyone registered on the careers portal.
   async listAll() {
-    const { data, error } = await getClient()
-      .from(TABLE)
-      .select('id, name, email, phone, location, created_at')
-      .order('created_at', { ascending: false });
-    if (error) throw error;
-    return (data || []).map((r) => ({
+    // PostgREST caps a response at 1000 rows — page through so the full list (and
+    // any count derived from it) is complete even past 1000 applicants.
+    const rows = [];
+    for (let from = 0; from <= 2000000; from += 1000) {
+      const { data, error } = await getClient()
+        .from(TABLE)
+        .select('id, name, email, phone, location, created_at')
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: true })
+        .range(from, from + 999);
+      if (error) throw error;
+      rows.push(...(data || []));
+      if (!data || data.length < 1000) break;
+    }
+    return rows.map((r) => ({
       _id: r.id,
       name: r.name,
       email: r.email,

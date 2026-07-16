@@ -34,7 +34,8 @@ import {
   UserCheck,
   Sparkles,
   ScrollText,
-  BarChart3
+  BarChart3,
+  Megaphone
 } from 'lucide-react';
 
 const DashboardLayout = () => {
@@ -95,6 +96,7 @@ const DashboardLayout = () => {
     { name: 'Analytics', path: '/analytics', icon: BarChart3, roles: ['Admin', 'Recruiter', 'Hiring Manager'] },
     { name: 'Job Openings', path: '/jobs', icon: Briefcase, roles: ['Admin', 'Recruiter', 'Hiring Manager'] },
     { name: 'Upload & Analyze', path: '/upload', icon: UploadCloud, roles: ['Admin', 'Recruiter'] },
+    { name: 'Leads', path: '/leads', icon: Megaphone, roles: ['Admin', 'Recruiter'] },
     { name: 'Candidates', path: '/candidates', icon: Users, roles: ['Admin', 'Recruiter', 'Hiring Manager'] },
     { name: 'Recommendations', path: '/shortlist', icon: Sparkles, roles: ['Admin', 'Recruiter', 'Hiring Manager'] },
     { name: 'Hiring Pipeline', path: '/pipeline', icon: Columns, roles: ['Admin', 'Recruiter', 'Hiring Manager'] },
@@ -158,19 +160,7 @@ const DashboardLayout = () => {
           ))}
         </nav>
 
-        {/* Upload Resume Quick Button */}
-        {['Admin', 'Recruiter'].includes(user?.role) && (
-          <div className="px-3 py-2.5 border-t border-slate-200 dark:border-darkBorder">
-            <NavLink
-              to="/upload"
-              onClick={() => setSidebarOpen(false)}
-              className="flex items-center justify-center w-full space-x-2 px-3 py-2 rounded-lg text-sm font-semibold text-white bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-700 hover:to-indigo-700 shadow-sm transition duration-200"
-            >
-              <Plus size={16} />
-              <span>Upload Resume</span>
-            </NavLink>
-          </div>
-        )}
+        
 
         {/* Sidebar Footer */}
         <div className="p-3 border-t border-slate-200 dark:border-darkBorder bg-slate-50/50 dark:bg-slate-900/30">
@@ -196,7 +186,7 @@ const DashboardLayout = () => {
       </aside>
 
       {/* Main Content Pane */}
-      <div className="flex-1 flex flex-col min-w-0 h-dvh overflow-hidden">
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Top Header */}
         <header className="flex items-center justify-between h-14 px-4 lg:px-6 bg-white dark:bg-darkCard border-b border-slate-200 dark:border-darkBorder sticky top-0 z-30">
           {/* Menu toggles */}
@@ -336,7 +326,7 @@ const DashboardLayout = () => {
         </header>
 
         {/* Dashboard Pages Mount */}
-        <main className="flex-1 p-2 lg:p-3 overflow-y-auto">
+        <main className="flex-1 min-h-0 max-h-[calc(100dvh-3.5rem)] p-2 lg:p-3 overflow-y-auto">
           <Outlet />
         </main>
       </div>

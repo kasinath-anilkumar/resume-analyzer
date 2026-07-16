@@ -41,6 +41,8 @@ const toApi = (row) =>
     whatsappAccessToken: decrypt(row.whatsapp_access_token),
     whatsappPhoneNumberId: row.whatsapp_phone_number_id || '',
     whatsappTemplateName: row.whatsapp_template_name || '',
+    whatsappVerifyToken: decrypt(row.whatsapp_verify_token),
+    whatsappAppSecret: decrypt(row.whatsapp_app_secret),
     updatedBy: row.updated_by,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -100,6 +102,8 @@ const SettingsRepo = {
     if (patch.whatsappAccessToken !== undefined) row.whatsapp_access_token = encrypt(patch.whatsappAccessToken);
     if (patch.whatsappPhoneNumberId !== undefined) row.whatsapp_phone_number_id = String(patch.whatsappPhoneNumberId || '').trim();
     if (patch.whatsappTemplateName !== undefined) row.whatsapp_template_name = String(patch.whatsappTemplateName || '').trim();
+    if (patch.whatsappVerifyToken !== undefined) row.whatsapp_verify_token = encrypt(patch.whatsappVerifyToken);
+    if (patch.whatsappAppSecret !== undefined) row.whatsapp_app_secret = encrypt(patch.whatsappAppSecret);
     if (userId) row.updated_by = userId;
 
     const { data, error } = await getClient()

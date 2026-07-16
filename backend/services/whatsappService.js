@@ -11,8 +11,10 @@
 // mandatory (free-form text is rejected by Meta until the user replies).
 
 const axios = require('axios');
+const crypto = require('crypto');
 
 const TEMPLATE_LANG = 'en_US'; // change if the approved template is another locale
+const MAX_MEDIA_BYTES = 10 * 1024 * 1024; // 10 MB — same cap as résumé uploads
 
 const isConfigured = (settings) =>
   Boolean(settings && settings.whatsappAccessToken && settings.whatsappPhoneNumberId && settings.whatsappTemplateName);
@@ -68,4 +70,89 @@ async function sendResumeRequest(settings, { toPhone, name, jobTitle, uploadUrl 
   }
 }
 
-module.exports = { isConfigured, sendResumeRequest, normalizePhone, buildTemplateBody };
+// ---------------------------------------------------------------------------
+//  Inbound webhook (candidate replies with their résumé in the WhatsApp chat)
+// ---------------------------------------------------------------------------
+
+// True inbound is possible once the app secret + verify token are set.
+const isInboundConfigured = (settings) =>
+  Boolean(settings && settings.whatsappAppSecret && settings.whatsappVerifyToken && settings.whatsappAccessToken);
+
+// Verify Meta's X-Hub-Signature-256 HMAC over the RAW request body. Constant-time.
+function verifyWebhookSignature(appSecret, rawBody, signatureHeader) {
+  if (!appSecret || !signatureHeader || !rawBody || !rawBody.length) return false;
+  const expected = 'sha256=' + crypto.createHmac('sha256', appSecret).update(rawBody).digest('hex');
+  const a = Buffer.from(expected);
+  const b = Buffer.from(String(signatureHeader));
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+// Flatten a Cloud API webhook payload into simple message records.
+function parseInboundMessages(body) {
+  const out = [];
+  for (const entry of (body && body.entry) || []) {
+    for (const change of entry.changes || []) {
+      const value = change.value || {};
+      const contactName = value.contacts?.[0]?.profile?.name || '';
+      for (const m of value.messages || []) {
+        const media = m.document || m.image || null;
+        out.push({
+          from: m.from,
+          type: m.type,
+          mediaId: media ? media.id : null,
+          mime: media ? media.mime_type || '' : '',
+          filename: (m.document && m.document.filename) || '',
+          text: (m.text && m.text.body) || '',
+          contactName,
+        });
+      }
+    }
+  }
+  return out;
+}
+
+// Download a media object by id: resolve its short-lived URL, then fetch the
+// bytes (both calls need the bearer token). Caps at MAX_MEDIA_BYTES.
+async function downloadMedia(settings, mediaId) {
+  const version = settings.metaGraphVersion || 'v21.0';
+  const token = settings.whatsappAccessToken;
+  const meta = await axios.get(`https://graph.facebook.com/${version}/${mediaId}`, {
+    headers: { Authorization: `Bearer ${token}` }, timeout: 15000,
+  });
+  const url = meta.data && meta.data.url;
+  const mime = (meta.data && meta.data.mime_type) || '';
+  if (!url) throw new Error('WhatsApp media URL missing');
+  const file = await axios.get(url, {
+    headers: { Authorization: `Bearer ${token}` },
+    responseType: 'arraybuffer',
+    timeout: 30000,
+    maxContentLength: MAX_MEDIA_BYTES,
+    maxBodyLength: MAX_MEDIA_BYTES,
+  });
+  return { buffer: Buffer.from(file.data), mime: mime || file.headers['content-type'] || '' };
+}
+
+// Free-form text reply. Allowed only inside the 24h customer-service window
+// (i.e. after the user has messaged us — which is exactly the inbound case).
+async function sendText(settings, toPhone, text) {
+  if (!isConfigured(settings)) return { sent: false, skipped: 'not_configured' };
+  const to = normalizePhone(toPhone);
+  if (!to) return { sent: false, skipped: 'no_phone' };
+  const version = settings.metaGraphVersion || 'v21.0';
+  try {
+    await axios.post(
+      `https://graph.facebook.com/${version}/${settings.whatsappPhoneNumberId}/messages`,
+      { messaging_product: 'whatsapp', to, type: 'text', text: { body: String(text || '') } },
+      { headers: { Authorization: `Bearer ${settings.whatsappAccessToken}`, 'Content-Type': 'application/json' }, timeout: 15000 }
+    );
+    return { sent: true };
+  } catch (err) {
+    console.error('[whatsapp] text reply failed:', err.response?.data?.error?.message || err.message);
+    return { sent: false, error: err.message };
+  }
+}
+
+module.exports = {
+  isConfigured, isInboundConfigured, sendResumeRequest, normalizePhone, buildTemplateBody,
+  verifyWebhookSignature, parseInboundMessages, downloadMedia, sendText,
+};

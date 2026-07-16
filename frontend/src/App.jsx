@@ -21,6 +21,7 @@ import Analytics from './pages/Analytics';
 import Jobs from './pages/Jobs';
 import JobForm from './pages/JobForm';
 import Candidates from './pages/Candidates';
+import Leads from './pages/Leads';
 import AddCandidate from './pages/AddCandidate';
 import Trash from './pages/Trash';
 import Shortlist from './pages/Shortlist';
@@ -109,6 +110,7 @@ function App() {
               <Route path="jobs/:id/edit" element={<JobForm />} />
               <Route path="upload" element={<Upload />} />
               <Route path="candidates" element={<Candidates />} />
+              <Route path="leads" element={<Leads />} />
               <Route path="candidates/new" element={<AddCandidate />} />
               <Route path="trash" element={<Trash />} />
               <Route path="shortlist" element={<Shortlist />} />

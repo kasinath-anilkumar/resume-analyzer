@@ -22,6 +22,10 @@ const {
   moveCandidateJob,
   reanalyzeCandidate,
   getResumeSignedUrl,
+  getLeads,
+  resendResumeRequest,
+  sendLeadRequests,
+  getPipelineCounts,
 } = require('../controllers/candidateController');
 const { protect, authorize } = require('../middleware/auth');
 const upload = require('../middleware/upload');
@@ -32,6 +36,14 @@ router.get('/dashboard/stats', protect, getDashboardStats);
 // Cross-role recommendations: rank the whole pool against a job (must be
 // declared before '/:id' so 'recommendations' isn't parsed as an id).
 router.get('/recommendations', protect, getRecommendations);
+
+// Automation leads (Meta Ads + sheet import) with résumé-flow status. Declared
+// before '/:id' so 'leads' isn't parsed as a candidate id.
+router.get('/leads', protect, authorize('Admin', 'Recruiter'), getLeads);
+// Bulk-send the WhatsApp résumé request to all leads awaiting a résumé.
+router.post('/leads/send-requests', protect, authorize('Admin', 'Recruiter'), sendLeadRequests);
+// Exact per-stage counts for the pipeline board. Declared before '/:id'.
+router.get('/pipeline-counts', protect, getPipelineCounts);
 
 // Trash (soft-deleted candidates). Declared before '/:id'.
 router.get('/trash', protect, authorize('Admin', 'Recruiter'), getTrash);
@@ -68,6 +80,9 @@ router.get('/:id/resume-url', protect, getResumeSignedUrl);
 // Move to a different job / re-run AI analysis
 router.put('/:id/job', protect, authorize('Admin', 'Recruiter'), moveCandidateJob);
 router.post('/:id/reanalyze', protect, authorize('Admin', 'Recruiter'), reanalyzeCandidate);
+
+// (Re)send the WhatsApp résumé request for a lead awaiting a résumé.
+router.post('/:id/resend-request', protect, authorize('Admin', 'Recruiter'), resendResumeRequest);
 
 // Interview scheduling
 router.post('/:id/interviews', protect, authorize('Admin', 'Recruiter'), scheduleInterview);

@@ -333,7 +333,7 @@ img {
   user-select: none;
 }
 
-/* Momentum (native) scrolling + no scroll-chaining out of app scroll panes. */
+/* Momentum (native) scrolling on every app scroll pane. */
 .overflow-auto,
 .overflow-y-auto,
 .overflow-x-auto,
@@ -341,7 +341,16 @@ img {
 .overflow-x-scroll,
 main {
   -webkit-overflow-scrolling: touch;
-  overscroll-behavior: contain;
+}
+
+/* Prevent rubber-band / scroll-chaining ONLY on vertical scrollers. Never put it
+   on a horizontal-only pane (e.g. a wide table's overflow-x-auto wrapper): there,
+   `contain` swallows a vertical wheel/touch gesture instead of letting it scroll
+   the page — which reads as "scroll doesn't work over the table". */
+.overflow-y-auto,
+.overflow-y-scroll,
+main {
+  overscroll-behavior-y: contain;
 }
 
 /* When launched as an installed PWA, keep scrollable content clear of the

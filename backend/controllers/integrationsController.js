@@ -3,6 +3,7 @@ const JobRepo = require('../models/jobRepo');
 const AuditRepo = require('../models/auditRepo');
 const MetaLeads = require('../services/metaLeadsService');
 const LeadIngestion = require('../services/leadIngestion');
+const SheetImport = require('../services/sheetImport');
 
 // @desc    Verify the saved Meta token + page (leads_retrieval reachability)
 // @route   POST /api/integrations/meta/test
@@ -89,3 +90,37 @@ exports.syncNow = async (req, res) => {
     return res.status(500).json({ success: false, message: 'Server error running the sync.' });
   }
 };
+
+// @desc    Import leads from an uploaded CSV → create candidates + WhatsApp request
+// @route   POST /api/integrations/leads/import   (multipart: file, jobId)
+// @access  Private (Admin)
+exports.importLeads = async (req, res) => {
+  try {
+    const { jobId } = req.body;
+    if (!jobId) return res.status(400).json({ success: false, message: 'Choose a job for these leads.' });
+    if (!req.file || !req.file.buffer) {
+      return res.status(400).json({ success: false, message: 'Attach a .csv file of leads.' });
+    }
+    const job = await JobRepo.findById(jobId);
+    if (!job) return res.status(404).json({ success: false, message: 'Job not found.' });
+
+    const settings = await SettingsRepo.get();
+    const summary = await SheetImport.importCsvLeads(settings, job, req.file.buffer, req.user);
+
+    const waNote = WhatsAppConfigured(settings)
+      ? `${summary.whatsappSent} WhatsApp request(s) sent`
+      : 'WhatsApp is not configured yet, so no request messages were sent';
+    const msg =
+      `Imported ${summary.created} new lead(s), ${summary.duplicates} duplicate(s) skipped` +
+      (summary.skippedNoContact ? `, ${summary.skippedNoContact} row(s) without a phone or email` : '') +
+      ` into "${job.title}". ${waNote}.`;
+    return res.json({ success: summary.errors.length === 0, data: summary, message: msg });
+  } catch (err) {
+    console.error('Lead import error:', err);
+    return res.status(500).json({ success: false, message: 'Server error importing the sheet.' });
+  }
+};
+
+// Local helper so the message can distinguish "no sends because unconfigured".
+const WhatsAppConfigured = (settings) =>
+  Boolean(settings && settings.whatsappAccessToken && settings.whatsappPhoneNumberId && settings.whatsappTemplateName);

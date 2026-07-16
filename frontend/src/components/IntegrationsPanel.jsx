@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import api from '../services/api';
+import api, { API_ORIGIN } from '../services/api';
 import {
   Loader2, Plug, CheckCircle2, AlertCircle, RefreshCw, Save, Link2, MessageCircle,
   ShieldCheck, Info,
@@ -23,6 +23,8 @@ const IntegrationsPanel = () => {
   const [waToken, setWaToken] = useState('');
   const [waPhoneId, setWaPhoneId] = useState('');
   const [waTemplate, setWaTemplate] = useState('');
+  const [waVerify, setWaVerify] = useState('');
+  const [waAppSecret, setWaAppSecret] = useState('');
 
   const flash = (type, text) => { setMsg({ type, text }); setTimeout(() => setMsg({ type: '', text: '' }), 6000); };
 
@@ -63,8 +65,10 @@ const IntegrationsPanel = () => {
     try {
       const payload = { whatsappPhoneNumberId: waPhoneId, whatsappTemplateName: waTemplate };
       if (waToken.trim()) payload.whatsappAccessToken = waToken.trim();
+      if (waVerify.trim()) payload.whatsappVerifyToken = waVerify.trim();
+      if (waAppSecret.trim()) payload.whatsappAppSecret = waAppSecret.trim();
       const res = await api.put('/settings', payload);
-      if (res.data.success) { setWaToken(''); flash('success', 'WhatsApp settings saved.'); await load(); }
+      if (res.data.success) { setWaToken(''); setWaAppSecret(''); flash('success', 'WhatsApp settings saved.'); await load(); }
     } catch (err) { flash('error', err.response?.data?.message || 'Save failed.'); }
     finally { setBusy(''); }
   };
@@ -116,7 +120,9 @@ const IntegrationsPanel = () => {
         <span>
           This needs a Meta developer App with the <strong>leads_retrieval</strong> and <strong>whatsapp_business_messaging</strong> permissions
           (App Review + Business Verification), the Page's Lead-Gen ToS accepted, and an approved WhatsApp template with 3 body
-          variables: <em>{'{{1}}'} name</em>, <em>{'{{2}}'} role</em>, <em>{'{{3}}'} upload link</em>. Until then, use Meta's Lead Ads Testing Tool + a WhatsApp test number.
+          variables: <em>{'{{1}}'} name</em>, <em>{'{{2}}'} role</em>, <em>{'{{3}}'} upload link</em>. For candidates to <strong>reply with their résumé in-chat</strong>,
+          also set the App Secret + verify token below and subscribe the webhook to <code>messages</code>. Full steps: <strong>WHATSAPP_SETUP.md</strong>.
+          Until then, use Meta's Lead Ads Testing Tool + a WhatsApp test number.
         </span>
       </div>
 
@@ -177,7 +183,25 @@ const IntegrationsPanel = () => {
           <Field label="Approved template name">
             <input value={waTemplate} onChange={(e) => setWaTemplate(e.target.value)} placeholder="resume_request" className={inputCls} />
           </Field>
+          <Field label="Webhook verify token" hint={cfg?.whatsappVerifyTokenMasked ? `Saved: ${cfg.whatsappVerifyTokenMasked} — leave blank to keep` : 'a string you invent; paste the same into Meta'}>
+            <input type="password" value={waVerify} onChange={(e) => setWaVerify(e.target.value)} placeholder="my-verify-token" className={inputCls} autoComplete="off" />
+          </Field>
+          <Field label="App secret" hint={cfg?.whatsappAppSecretMasked ? `Saved: ${cfg.whatsappAppSecretMasked} — leave blank to keep` : 'Meta App → Settings → Basic → App Secret'}>
+            <input type="password" value={waAppSecret} onChange={(e) => setWaAppSecret(e.target.value)} placeholder="••••••••" className={inputCls} autoComplete="off" />
+          </Field>
         </div>
+
+        {/* Inbound webhook — the "reply with your résumé in chat" flow */}
+        <div className="mt-3 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/40 border border-slate-200/70 dark:border-darkBorder/70">
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">Callback URL — paste into Meta → WhatsApp → Configuration → Webhook (subscribe to <em>messages</em>)</span>
+            <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wide shrink-0 ${cfg?.whatsappInboundConfigured ? 'bg-emerald-500/10 text-emerald-600 border border-emerald-500/20' : 'bg-slate-500/10 text-slate-500'}`}>
+              {cfg?.whatsappInboundConfigured ? 'Inbound ready' : 'Inbound off'}
+            </span>
+          </div>
+          <code className="block text-[11px] text-slate-700 dark:text-slate-300 break-all select-all">{API_ORIGIN}/api/public/whatsapp/webhook</code>
+        </div>
+
         <button onClick={saveWa} disabled={busy === 'saveWa'} className={`${btnPrimary} mt-3`}>
           {busy === 'saveWa' ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />} Save
         </button>

@@ -10,6 +10,8 @@ const AuditRepo = require('../models/auditRepo');
 const ApplicantRepo = require('../models/applicantRepo');
 const CandidateMatcher = require('../services/candidateMatcher');
 const EmbeddingService = require('../services/embeddingService');
+const WhatsApp = require('../services/whatsappService');
+const LeadIngestion = require('../services/leadIngestion');
 const { getOrCompute } = require('../utils/ttlCache');
 const { geocodeOne, peek, warm, distanceKm } = require('../utils/geocode');
 
@@ -149,6 +151,128 @@ exports.createManualCandidate = async (req, res) => {
 // @desc    Get candidates (with advanced search & filtering)
 // @route   GET /api/candidates
 // @access  Private
+// Derive the résumé-flow status of a lead from its raw fields.
+const deriveLeadStatus = (r) => {
+  if (!r.hasResume) return r.resumeRequestedAt ? 'awaiting' : 'no_request';
+  if (r.analysisStatus === 'pending' || r.analysisStatus === 'processing') return 'analyzing';
+  if (r.analysisStatus === 'failed') return 'failed';
+  return 'analyzed';
+};
+
+// @desc    List automation leads (Meta Ads + sheet import) with résumé-flow status
+// @route   GET /api/candidates/leads
+// @access  Private (Admin, Recruiter)
+exports.getLeads = async (req, res) => {
+  try {
+    const { jobId, source } = req.query;
+    const rows = (await CandidateRepo.listLeads({ jobId, source })).map((r) => ({ ...r, leadStatus: deriveLeadStatus(r) }));
+    const stats = { total: rows.length, noRequest: 0, awaiting: 0, received: 0, analyzed: 0 };
+    for (const r of rows) {
+      if (r.leadStatus === 'no_request') stats.noRequest += 1;
+      else if (r.leadStatus === 'awaiting') stats.awaiting += 1;
+      else { stats.received += 1; if (r.leadStatus === 'analyzed') stats.analyzed += 1; }
+    }
+    return res.json({ success: true, count: rows.length, stats, data: rows });
+  } catch (error) {
+    console.error('Get leads error:', error);
+    return res.status(500).json({ success: false, message: 'Server error retrieving leads' });
+  }
+};
+
+// @desc    (Re)send the WhatsApp résumé request for a lead still awaiting a résumé
+// @route   POST /api/candidates/:id/resend-request
+// @access  Private (Admin, Recruiter)
+exports.resendResumeRequest = async (req, res) => {
+  try {
+    const lead = await CandidateRepo.findLeadForResend(req.params.id);
+    if (!lead) return res.status(404).json({ success: false, message: 'Lead not found.' });
+    if (lead.resumeUrl) return res.status(400).json({ success: false, message: 'This lead already has a résumé.' });
+    if (!lead.phone) return res.status(400).json({ success: false, message: 'No phone number on file for this lead.' });
+
+    const settings = await SettingsRepo.get();
+    if (!WhatsApp.isConfigured(settings)) {
+      return res.status(400).json({ success: false, message: 'WhatsApp isn’t configured yet (Settings → Integrations).' });
+    }
+    let jobTitle = 'the role';
+    try { const job = await JobRepo.findById(lead.jobId); if (job) jobTitle = job.title; } catch (_) { /* non-fatal */ }
+
+    const uploadUrl = `${LeadIngestion._appBaseUrl()}/u/${lead.resumeUploadToken}`;
+    const wa = await WhatsApp.sendResumeRequest(settings, { toPhone: lead.phone, name: lead.name, jobTitle, uploadUrl });
+    if (!wa.sent) {
+      return res.status(502).json({ success: false, message: wa.error || 'WhatsApp did not accept the message.' });
+    }
+    await CandidateRepo.markResumeRequested(lead._id).catch(() => {});
+    AuditRepo.log(req.user, 'lead.resend_request', {
+      entityType: 'candidate', entityId: lead._id,
+      summary: `Re-sent résumé request to ${lead.name || 'lead'}`,
+    });
+    return res.json({ success: true, message: 'Résumé request sent.' });
+  } catch (error) {
+    console.error('Resend request error:', error);
+    return res.status(500).json({ success: false, message: 'Server error sending the request.' });
+  }
+};
+
+// @desc    Bulk-send the WhatsApp résumé request to every lead awaiting a résumé
+// @route   POST /api/candidates/leads/send-requests   body: { jobId? }
+// @access  Private (Admin, Recruiter)
+exports.sendLeadRequests = async (req, res) => {
+  try {
+    const { jobId } = req.body || {};
+    const settings = await SettingsRepo.get();
+    if (!WhatsApp.isConfigured(settings)) {
+      return res.status(400).json({ success: false, message: 'WhatsApp isn’t configured yet (Settings → Integrations).' });
+    }
+    const leads = await CandidateRepo.listLeadsAwaitingResume(jobId);
+    if (!leads.length) return res.json({ success: true, queued: 0, message: 'No leads are awaiting a résumé request.' });
+
+    // Ack immediately, then send in the background: a big batch would blow the
+    // request timeout, and WhatsApp needs gentle pacing anyway.
+    res.json({ success: true, queued: leads.length, message: `Sending résumé requests to ${leads.length} lead(s) in the background. Refresh in a moment to see progress.` });
+
+    const actor = req.user;
+    (async () => {
+      const appBaseUrl = LeadIngestion._appBaseUrl();
+      const titleCache = {};
+      let sent = 0;
+      for (const l of leads) {
+        try {
+          if (titleCache[l.jobId] === undefined) {
+            const j = await JobRepo.findById(l.jobId);
+            titleCache[l.jobId] = (j && j.title) || 'the role';
+          }
+          const wa = await WhatsApp.sendResumeRequest(settings, {
+            toPhone: l.phone, name: l.name, jobTitle: titleCache[l.jobId],
+            uploadUrl: `${appBaseUrl}/u/${l.resumeUploadToken}`,
+          });
+          if (wa.sent) { sent += 1; await CandidateRepo.markResumeRequested(l._id).catch(() => {}); }
+          await new Promise((r) => setTimeout(r, 120)); // gentle pacing between sends
+        } catch (_) { /* one failure shouldn't stop the batch */ }
+      }
+      AuditRepo.log(actor, 'lead.bulk_request', { entityType: 'settings', summary: `Bulk résumé requests: sent ${sent}/${leads.length}` });
+    })().catch(() => {});
+  } catch (error) {
+    console.error('Bulk send error:', error);
+    return res.status(500).json({ success: false, message: 'Server error sending requests.' });
+  }
+};
+
+// @desc    Exact per-stage candidate counts for a job (pipeline board badges)
+// @route   GET /api/candidates/pipeline-counts?jobId=...
+// @access  Private
+exports.getPipelineCounts = async (req, res) => {
+  try {
+    const { jobId } = req.query;
+    if (!jobId) return res.json({ success: true, data: {} });
+    const stages = ['Applied', 'Screening', 'Shortlisted', 'Interview', 'Technical Round', 'HR Round', 'Offer', 'Hired', 'Rejected'];
+    const data = await CandidateRepo.stageCountsForJob(jobId, stages);
+    return res.json({ success: true, data });
+  } catch (error) {
+    console.error('Pipeline counts error:', error);
+    return res.status(500).json({ success: false, message: 'Server error loading pipeline counts' });
+  }
+};
+
 exports.getCandidates = async (req, res) => {
   try {
     const { jobId, status, minScore, search, skill, verdict, page, pageSize, sort, radiusKm } = req.query;

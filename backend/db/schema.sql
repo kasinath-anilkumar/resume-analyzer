@@ -204,6 +204,11 @@ alter table candidates add column if not exists resume_requested_at timestamptz;
 alter table candidates add column if not exists resume_submitted_at timestamptz;
 create unique index if not exists candidates_lead_meta_id_idx on candidates(lead_meta_id) where lead_meta_id is not null;
 create unique index if not exists candidates_resume_upload_token_idx on candidates(resume_upload_token) where resume_upload_token is not null;
+-- Inbound résumé matching: keep the "lead still awaiting a résumé" subset small &
+-- fast so a WhatsApp reply can be matched to its candidate by phone.
+create index if not exists candidates_pending_resume_idx
+  on candidates (resume_requested_at desc nulls last)
+  where resume_url is null and deleted_at is null;
 
 -- ---------------------------------------------------------------------------
 --  notifications
@@ -255,6 +260,11 @@ alter table settings add column if not exists meta_last_synced_at timestamptz;  
 alter table settings add column if not exists whatsapp_access_token text not null default ''; -- may equal the Meta token
 alter table settings add column if not exists whatsapp_phone_number_id text not null default '';
 alter table settings add column if not exists whatsapp_template_name text not null default '';
+-- Inbound WhatsApp webhook (candidate replies with their résumé in-chat).
+-- verify_token is the subscription handshake string; app_secret verifies the
+-- X-Hub-Signature-256 HMAC on incoming events. Both encrypted at rest.
+alter table settings add column if not exists whatsapp_verify_token text not null default '';
+alter table settings add column if not exists whatsapp_app_secret text not null default '';
 
 -- The backend seeds the single settings row (with sensible default departments
 -- and locations) on first read, so no INSERT is required here.

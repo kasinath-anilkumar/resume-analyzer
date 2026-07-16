@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../services/api';
+import { useAuth } from '../context/AuthContext';
 import {
   useUpload,
   ACCEPT_ATTR,
@@ -18,6 +19,7 @@ import {
   X,
   Users,
   ArrowRight,
+  FileSpreadsheet,
 } from 'lucide-react';
 
 const scoreBadgeClass = (score) => {
@@ -73,16 +75,47 @@ const Upload = () => {
     startUpload,
   } = useUpload();
 
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'Admin';
+
   const [jobs, setJobs] = useState([]);
   const [selectedJobId, setSelectedJobId] = useState('');
   const [loadingJobs, setLoadingJobs] = useState(true);
   const [dragActive, setDragActive] = useState(false);
+  // Lead-sheet (CSV) import
+  const [sheetFile, setSheetFile] = useState(null);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState(null);
+  const [importError, setImportError] = useState('');
   // Whether a working AI key is configured. Default true so a failed/omitted
   // settings read never wrongly blocks uploads (the backend still enforces it).
   const [aiReady, setAiReady] = useState(true);
 
   const fileInputRef = useRef(null);
   const folderInputRef = useRef(null);
+  const sheetInputRef = useRef(null);
+
+  const handleImportLeads = async () => {
+    if (!selectedJobId || !sheetFile || importing) return;
+    setImporting(true);
+    setImportError('');
+    setImportResult(null);
+    try {
+      const fd = new FormData();
+      fd.append('file', sheetFile);
+      fd.append('jobId', selectedJobId);
+      const res = await api.post('/integrations/leads/import', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      setImportResult({ message: res.data.message, summary: res.data.data });
+      setSheetFile(null);
+      if (sheetInputRef.current) sheetInputRef.current.value = '';
+    } catch (err) {
+      setImportError(err.response?.data?.message || 'Import failed. Please check the file and try again.');
+    } finally {
+      setImporting(false);
+    }
+  };
 
   useEffect(() => {
     const fetchJobs = async () => {
@@ -281,6 +314,56 @@ const Upload = () => {
           </p>
         )}
       </div>
+
+      {/* Import leads from a CSV (Admin) — creates lead candidates + WhatsApp résumé request */}
+      {isAdmin && (
+        <div className="p-4 bg-white dark:bg-darkCard border border-slate-200/60 dark:border-darkBorder rounded-2xl shadow-premium dark:shadow-premium-dark space-y-3">
+          <div className="flex items-center gap-2">
+            <FileSpreadsheet size={16} className="text-brand-500" />
+            <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">Import leads from a sheet</h3>
+          </div>
+          <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+            Upload a <strong>.csv or .xlsx</strong> of leads for the job selected above. Header columns:{' '}
+            <code className="px-1 rounded bg-slate-100 dark:bg-slate-800">Name, Email, Phone</code>{' '}
+            (an optional <code className="px-1 rounded bg-slate-100 dark:bg-slate-800">Resume URL</code> column).
+            Rows without a résumé get an automatic WhatsApp request asking for one.
+          </p>
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+            <input
+              ref={sheetInputRef}
+              type="file"
+              accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              disabled={importing || noJobs}
+              onChange={(e) => { setSheetFile(e.target.files?.[0] || null); setImportResult(null); setImportError(''); }}
+              className="block w-full text-xs text-slate-600 dark:text-slate-400 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-brand-500/10 file:text-brand-600 hover:file:bg-brand-500/20 file:cursor-pointer"
+            />
+            <button
+              type="button"
+              onClick={handleImportLeads}
+              disabled={!selectedJobId || !sheetFile || importing || noJobs}
+              className="flex items-center justify-center gap-1.5 px-4 py-2 bg-brand-600 hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold rounded-xl shadow-sm transition whitespace-nowrap"
+            >
+              {importing ? <Loader2 size={14} className="animate-spin" /> : <FileSpreadsheet size={14} />}
+              <span>{importing ? 'Importing…' : 'Import leads'}</span>
+            </button>
+          </div>
+          {importError && (
+            <p className="flex items-center gap-1.5 text-[11px] text-rose-600 dark:text-rose-400">
+              <AlertCircle size={13} /> {importError}
+            </p>
+          )}
+          {importResult && (
+            <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-[11px] text-emerald-700 dark:text-emerald-400 space-y-1">
+              <p className="flex items-start gap-1.5"><CheckCircle2 size={13} className="mt-0.5 shrink-0" /> {importResult.message}</p>
+              {importResult.summary?.errors?.length > 0 && (
+                <ul className="list-disc ml-5 text-emerald-700/80 dark:text-emerald-400/80">
+                  {importResult.summary.errors.slice(0, 5).map((e, i) => <li key={i}>{e}</li>)}
+                </ul>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Selected documents */}
       {items.length > 0 && (
