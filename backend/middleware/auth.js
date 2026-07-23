@@ -106,7 +106,14 @@ const attachApplicant = async (req, res, next) => {
       const decoded = verifyToken(h.split(' ')[1]);
       if (decoded.typ === 'applicant') {
         const a = await ApplicantRepo.findById(decoded.id);
-        if (a && !isStaleSession(decoded, a.passwordChangedAt)) req.applicant = a; // full profile (incl. resumeUrl)
+        // Expose BOTH `id` and `_id`. findById returns the toApi shape (`_id`),
+        // while protectApplicant exposes `id` — callers used `req.applicant.id`,
+        // which was silently undefined here, so applications from signed-in
+        // applicants were never linked to their account (applicant_id stayed
+        // null). Normalizing keeps every consumer working on either name.
+        if (a && !isStaleSession(decoded, a.passwordChangedAt)) {
+          req.applicant = { ...a, id: a._id }; // full profile (incl. resumeUrl)
+        }
       }
     }
   } catch (_) {

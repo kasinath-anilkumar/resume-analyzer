@@ -5,6 +5,7 @@ const ParserService = require('../services/parserService');
 const AIService = require('../services/aiService');
 const StorageService = require('../services/storageService');
 const { scoreQuiz } = require('../services/quizScoring');
+const { issueQuizTicket, readQuizTicket } = require('../utils/quizTicket');
 const CandidateMatcher = require('../services/candidateMatcher');
 const WhatsApp = require('../services/whatsappService');
 const WhatsAppInbound = require('../services/whatsappInbound');
@@ -94,6 +95,12 @@ exports.getJob = async (req, res) => {
     if (!job) {
       return res.status(404).json({ success: false, message: 'This position is no longer open.' });
     }
+    // Hand out a signed start-time ticket alongside a quiz. The applicant returns
+    // it on submit and the server derives the elapsed time from it, so the quiz
+    // clock is never the client's to report. See utils/quizTicket.js.
+    if (job.quiz && Array.isArray(job.quiz.questions) && job.quiz.questions.length) {
+      job.quizTicket = issueQuizTicket(job._id);
+    }
     return res.json({ success: true, data: job });
   } catch (error) {
     console.error('Public job error:', error);
@@ -148,9 +155,16 @@ exports.apply = async (req, res) => {
       return res.status(404).json({ success: false, message: 'This position is no longer accepting applications.' });
     }
 
-    // Block a repeat application to the same role by the same email.
+    // Block a repeat application to the same role. For a SIGNED-IN applicant the
+    // check is per-ACCOUNT, not per-email: email is an unverified claim on the
+    // public form, so an anonymous submission carrying someone else's address
+    // must not be able to lock the real owner out of applying to that role.
+    // Anonymous submissions still dedup on email, which is all we know of them.
     try {
-      if (await CandidateRepo.existsForJobEmail(job._id, email)) {
+      const alreadyApplied = req.applicant
+        ? await CandidateRepo.existsForJobApplicant(job._id, req.applicant.id)
+        : await CandidateRepo.existsForJobEmail(job._id, email);
+      if (alreadyApplied) {
         return res.status(409).json({
           success: false,
           code: 'ALREADY_APPLIED',
@@ -178,6 +192,7 @@ exports.apply = async (req, res) => {
     //     Screening answers stay OPTIONAL ("Additional Screening"); the quiz is
     //     the mandatory gate.
     let quizResult = {};
+    let elapsedSeconds = null; // server-derived quiz duration (from the signed ticket)
     if (job.quiz && Array.isArray(job.quiz.questions) && job.quiz.questions.length) {
       let quizAnswers = [];
       try {
@@ -185,12 +200,18 @@ exports.apply = async (req, res) => {
         if (Array.isArray(parsed)) quizAnswers = parsed;
       } catch (_) { /* ignore */ }
 
-      // Every quiz question must be answered — UNLESS the time limit elapsed, in
-      // which case the applicant submits with whatever they managed (a genuine
-      // timeout). An answer of index 0 counts as answered.
+      // Every quiz question must be answered — UNLESS the time limit genuinely
+      // elapsed, in which case the applicant submits with whatever they managed.
+      // An answer of index 0 counts as answered.
+      //
+      // The elapsed time comes from the SERVER-SIGNED ticket issued with the
+      // quiz, never from the request body: a client-reported duration could be
+      // inflated to fake a timeout and skip this gate entirely. A missing or
+      // invalid ticket means the attempt is untimed — all answers required.
       const timeLimitSec = (parseInt(job.quiz.timeLimitMinutes, 10) || 0) * 60;
-      const spent = parseInt(req.body.quizTimeSpent, 10);
-      const timedOut = timeLimitSec > 0 && Number.isFinite(spent) && spent >= timeLimitSec - 2;
+      const ticket = readQuizTicket(req.body.quizTicket, job._id);
+      elapsedSeconds = ticket.valid ? ticket.elapsedSeconds : null;
+      const timedOut = timeLimitSec > 0 && elapsedSeconds !== null && elapsedSeconds >= timeLimitSec - 2;
       if (!timedOut) {
         const answered = new Set(
           quizAnswers
@@ -203,7 +224,8 @@ exports.apply = async (req, res) => {
       }
 
       quizResult = scoreQuiz(job.quiz, quizAnswers, {
-        timeSpentSeconds: req.body.quizTimeSpent,
+        // Server-measured, not client-claimed — this is what recruiters see.
+        timeSpentSeconds: elapsedSeconds,
         tabSwitches: req.body.quizTabSwitches,
       });
     }

@@ -626,14 +626,20 @@ const CandidateRepo = {
   // submitted BEFORE they made an account are included. Job populated with the
   // fields the portal shows. Returns full candidate rows — the controller runs
   // them through the applicant-safe serializer before sending.
-  async listForApplicant(email) {
-    const e = String(email || '').toLowerCase();
-    if (!e) return [];
+  // SECURITY: scoped by applicant_id — the account that actually submitted the
+  // application — NOT by email. Email is a claim anyone can make: portal sign-up
+  // does not verify ownership, so matching on it let anyone who knew a
+  // candidate's address register with it and read that person's applications.
+  // Only rows created by a session holding this account are ever returned.
+  // Consequence: applications submitted while logged OUT carry applicant_id null
+  // and are not listed here. Restoring that needs verified email ownership.
+  async listForApplicant(applicantId) {
+    if (!applicantId) return [];
     const { data, error } = await getClient()
       .from(TABLE)
       .select('*')
       .is('deleted_at', null)
-      .ilike('email', e)
+      .eq('applicant_id', applicantId)
       .order('created_at', { ascending: false });
     if (error) throw error;
     const rows = (data || []).map(toApi);
@@ -641,30 +647,32 @@ const CandidateRepo = {
     return rows.map((c) => ({ ...c, jobId: jobs[String(c.jobId)] || { _id: c.jobId, title: 'A role', department: '', location: '' } }));
   },
 
-  // A single application, strictly scoped to the applicant's own email so one
-  // applicant can never read another's record by guessing an id.
-  async findForApplicant(id, email) {
-    const e = String(email || '').toLowerCase();
+  // A single application, strictly scoped to the owning ACCOUNT (applicant_id)
+  // so one applicant can never read another's record by guessing an id — or by
+  // registering with someone else's email address. See listForApplicant.
+  async findForApplicant(id, applicantId) {
+    if (!applicantId) return null;
     const { data, error } = await getClient().from(TABLE).select('*').eq('id', id).is('deleted_at', null).maybeSingle();
     if (error) throw error;
-    if (!data || String(data.email || '').toLowerCase() !== e) return null;
+    if (!data || String(data.applicant_id || '') !== String(applicantId)) return null;
     const c = toApi(data);
     const jobs = await jobLookup([c.jobId], ['title', 'department', 'location', 'employment_type', 'description']);
     c.jobId = jobs[String(c.jobId)] || { _id: c.jobId, title: 'A role' };
     return c;
   },
 
-  // Applicant self-withdrawal, strictly scoped to their own email. Marks
+  // Applicant self-withdrawal, strictly scoped to the owning ACCOUNT. Marks
   // withdrawn_at + closes the row (status 'Rejected') so it exits the active
   // recruiter pipeline. Refuses if the application is already Hired, already
   // withdrawn, or doesn't belong to this applicant. Returns the updated row
-  // (toApi) or null when not withdrawable.
-  async withdrawForApplicant(id, email) {
-    const e = String(email || '').toLowerCase();
+  // (toApi) or null when not withdrawable. Ownership is applicant_id, never
+  // email — an email match let a squatter withdraw someone else's application.
+  async withdrawForApplicant(id, applicantId) {
+    if (!applicantId) return null;
     const { data: existing, error: findErr } = await getClient()
       .from(TABLE).select('*').eq('id', id).is('deleted_at', null).maybeSingle();
     if (findErr) throw findErr;
-    if (!existing || String(existing.email || '').toLowerCase() !== e) return null;
+    if (!existing || String(existing.applicant_id || '') !== String(applicantId)) return null;
     if (existing.withdrawn_at || existing.status === 'Hired' || existing.status === 'Rejected') return null;
 
     const { data, error } = await getClient()
@@ -916,6 +924,23 @@ const CandidateRepo = {
       .eq('job_id', jobId)
       .is('deleted_at', null)
       .ilike('email', e)
+      .limit(1);
+    if (error) throw error;
+    return (data || []).length > 0;
+  },
+
+  // Duplicate check for a SIGNED-IN applicant: has this ACCOUNT already applied
+  // to this job? Used instead of the email check so a stranger who submits an
+  // anonymous application using someone else's address cannot occupy that
+  // person's slot and lock the real owner out of the role (denial-of-application).
+  async existsForJobApplicant(jobId, applicantId) {
+    if (!jobId || !applicantId) return false;
+    const { data, error } = await getClient()
+      .from(TABLE)
+      .select('id')
+      .eq('job_id', jobId)
+      .eq('applicant_id', applicantId)
+      .is('deleted_at', null)
       .limit(1);
     if (error) throw error;
     return (data || []).length > 0;

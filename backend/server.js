@@ -35,14 +35,41 @@ if (process.env.NODE_ENV !== 'test') {
   }
 }
 
+// Public URL configuration. These are trivially easy to leave blank, and when
+// they are the failure is SILENT and total in production:
+//   • CLIENT_URL empty -> the CORS allow-list is localhost-only, so every request
+//     from the real frontend is rejected. The app looks "down" with no error here.
+//   • APP_URL empty    -> password-reset links are built against localhost:5173,
+//     so every reset email staff and applicants receive is dead.
+// Refuse to boot in production rather than serve a subtly broken deployment.
+if (process.env.NODE_ENV === 'production') {
+  const missing = [];
+  if (!String(process.env.CLIENT_URL || '').trim()) missing.push('CLIENT_URL (frontend origin(s) allowed by CORS, comma-separated)');
+  if (!String(process.env.APP_URL || '').trim()) missing.push('APP_URL (public frontend URL used to build password-reset links)');
+  if (missing.length) {
+    console.error(
+      'FATAL: NODE_ENV=production but required public URLs are not set:\n' +
+      missing.map((m) => `  - ${m}`).join('\n') +
+      '\nSet them in the environment (Render → Environment) and redeploy.'
+    );
+    process.exit(1);
+  }
+}
+
 // Resilience: a stray unhandled promise rejection would otherwise crash the
 // Node process (Node 15+), which surfaces to clients as a 502 from Render and
 // restarts the server. Log it instead and keep serving.
 process.on('unhandledRejection', (reason) => {
   console.error('Unhandled promise rejection (kept alive):', reason);
 });
+// An UNCAUGHT EXCEPTION is different: the stack unwound mid-operation, so state
+// is undefined — a half-written record, a released-twice handle, a lock never
+// freed. Continuing to serve from here risks corrupting data far more expensively
+// than a restart costs. Log it, then exit non-zero so the platform (Render) brings
+// up a clean process. The delay lets the log flush before we go.
 process.on('uncaughtException', (err) => {
-  console.error('Uncaught exception (kept alive):', err);
+  console.error('FATAL uncaught exception — exiting for a clean restart:', err);
+  setTimeout(() => process.exit(1), 100).unref();
 });
 
 // Verify the Supabase (Postgres) data layer is configured. Loading the client

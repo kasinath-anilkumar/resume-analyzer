@@ -4,15 +4,16 @@ const StorageService = require('../services/storageService');
 const { toApplicantView, toApplicantDetail } = require('../services/applicantView');
 
 // Careers-portal application tracking. Every query is scoped to the signed-in
-// applicant's own email (set by protectApplicant), and every candidate row is
-// run through the applicant-safe serializer so no recruiter data leaks.
+// applicant's ACCOUNT ID (set by protectApplicant) — never their email address,
+// which sign-up does not verify — and every candidate row is run through the
+// applicant-safe serializer so no recruiter data leaks.
 
 // @desc    List the applicant's own applications
 // @route   GET /api/portal/applications
 // @access  Private (applicant)
 exports.getMyApplications = async (req, res) => {
   try {
-    const rows = await CandidateRepo.listForApplicant(req.applicant.email);
+    const rows = await CandidateRepo.listForApplicant(req.applicant.id);
     return res.json({ success: true, count: rows.length, data: rows.map(toApplicantView) });
   } catch (error) {
     console.error('Portal applications error:', error);
@@ -87,7 +88,7 @@ exports.getMyResumeUrl = async (req, res) => {
 // @access  Private (applicant)
 exports.getMyApplication = async (req, res) => {
   try {
-    const row = await CandidateRepo.findForApplicant(req.params.id, req.applicant.email);
+    const row = await CandidateRepo.findForApplicant(req.params.id, req.applicant.id);
     if (!row) {
       return res.status(404).json({ success: false, message: 'Application not found.' });
     }
@@ -103,7 +104,7 @@ exports.getMyApplication = async (req, res) => {
 // @access  Private (applicant)
 exports.withdrawMyApplication = async (req, res) => {
   try {
-    const row = await CandidateRepo.withdrawForApplicant(req.params.id, req.applicant.email);
+    const row = await CandidateRepo.withdrawForApplicant(req.params.id, req.applicant.id);
     if (!row) {
       // Either it isn't theirs, doesn't exist, or is already decided/withdrawn.
       return res.status(409).json({

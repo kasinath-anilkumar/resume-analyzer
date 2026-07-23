@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import api from '../services/api';
 import portalApi from '../services/portalApi';
@@ -52,7 +52,8 @@ const CareerApply = () => {
   const [secondsLeft, setSecondsLeft] = useState(null);
   const [quizLocked, setQuizLocked] = useState(false);
   const [tabSwitches, setTabSwitches] = useState(0);
-  const startedRef = useRef(null);
+  // No local start timestamp: the quiz clock the server trusts comes from the
+  // signed job.quizTicket. secondsLeft below is purely the on-screen countdown.
   const hasQuiz = job?.quiz?.questions?.length > 0;
 
   const steps = [
@@ -70,9 +71,8 @@ const CareerApply = () => {
           const j = res.data.data;
           setJob(j);
           setAnswers((j.screeningQuestions || []).map((q) => ({ question: q, answer: '' })));
-          if (j.quiz?.questions?.length) {
-            startedRef.current = Date.now();
-            if (j.quiz.timeLimitMinutes) setSecondsLeft(j.quiz.timeLimitMinutes * 60);
+          if (j.quiz?.questions?.length && j.quiz.timeLimitMinutes) {
+            setSecondsLeft(j.quiz.timeLimitMinutes * 60);
           }
         } else setNotFound(true);
       })
@@ -250,44 +250,116 @@ const CareerApply = () => {
     setManualResume((prev) => ({ ...prev, projects: updated }));
   };
 
-  // Phone is optional, but if provided it must be a valid number for its country.
+  // A phone number is required, and must be a valid number for its country.
   const phoneValid = !form.phone || isValidPhoneNumber(form.phone);
 
-  const canGoNext = () => {
+  // ── Validation ──────────────────────────────────────────────────────────
+  // Every helper returns a specific message for the FIRST missing field, or ''
+  // when the section is complete. The wizard uses them to block "Next" and to
+  // send the applicant back to the exact step that still needs attention.
+
+  const profileError = () => {
+    if (!form.name.trim()) return 'Please enter your full name.';
+    if (!form.email.trim()) return 'Please enter your email address.';
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) return 'Please enter a valid email address.';
+    if (!form.phone) return 'Please enter your phone number.';
+    if (!isValidPhoneNumber(form.phone)) return 'Please enter a valid phone number.';
+    if (!form.currentLocation.trim()) return 'Please enter your current location.';
+    if (!form.salaryExpectation.trim()) return 'Please enter your salary expectation.';
+    return '';
+  };
+
+  const manualStepError = (step) => {
+    if (step === 1) {
+      const i = manualResume.education.findIndex((e) => !e.school.trim() || !e.degree.trim() || !e.year.trim());
+      if (i !== -1) return `Please complete every field for education #${i + 1}.`;
+    }
+    if (step === 2) {
+      const i = manualResume.experience.findIndex((e) => !e.company.trim() || !e.title.trim() || !e.duration.trim() || !e.desc.trim());
+      if (i !== -1) return `Please complete every field for experience #${i + 1}.`;
+    }
+    if (step === 3) {
+      // Projects stay optional, but a project that was started must be finished.
+      const i = manualResume.projects.findIndex((p) => (p.name.trim() || p.desc.trim()) && (!p.name.trim() || !p.desc.trim()));
+      if (i !== -1) return `Please complete both fields for project #${i + 1}, or remove it.`;
+    }
+    if (step === 4) {
+      if (!manualResume.skills.trim()) return 'Please list your key professional skills.';
+    }
+    return '';
+  };
+
+  // Résumé (uploaded, saved or manually entered) + the screening questions.
+  // Returns { message, manualStep } so the caller can reopen the right sub-step.
+  const documentsError = () => {
+    if (enterDetailsManually) {
+      for (const s of [1, 2, 3, 4]) {
+        const message = manualStepError(s);
+        if (message) return { message, manualStep: s };
+      }
+    } else if (!file && !(usePrimaryResume && hasPrimaryResume)) {
+      return { message: 'Please attach your résumé.' };
+    }
+    const blank = answers.findIndex((a) => !a.answer.trim());
+    if (blank !== -1) return { message: `Please answer all screening questions — question ${blank + 1} is unanswered.` };
+    return null;
+  };
+
+  // The quiz must be fully answered — unless its timer already ran out.
+  const quizError = () => {
+    if (!hasQuiz || quizLocked) return '';
+    const blank = job.quiz.questions.findIndex((q) => {
+      const v = quizAnswers[q.id];
+      return v === undefined || v === null || (typeof v === 'string' && !v.trim());
+    });
+    if (blank !== -1) return `Please answer all quiz questions — question ${blank + 1} is unanswered.`;
+    return '';
+  };
+
+  // Advance the wizard, refusing to move on while the current step is incomplete.
+  const goNext = () => {
     if (currentStep === 1) {
-      return form.name.trim() !== '' && form.email.trim() !== '' && form.email.includes('@') && phoneValid;
+      const message = profileError();
+      if (message) { setError(message); return; }
     }
     if (currentStep === 2) {
-      if (enterDetailsManually) {
-        return manualStep === 4 && manualResume.skills.trim() !== '';
+      const docs = documentsError();
+      if (docs) {
+        if (docs.manualStep) setManualStep(docs.manualStep);
+        setError(docs.message);
+        return;
       }
-      return file !== null || (usePrimaryResume && hasPrimaryResume);
     }
-    return true;
+    setError('');
+    setCurrentStep((s) => s + 1);
+  };
+
+  const goManualNext = () => {
+    const message = manualStepError(manualStep);
+    if (message) { setError(message); return; }
+    setError('');
+    setManualStep((s) => s + 1);
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
-    if (!form.name || !form.email) { setError('Please provide your name and email.'); return; }
-    if (form.phone && !isValidPhoneNumber(form.phone)) { setError('Please enter a valid phone number.'); return; }
-    const reuseSaved = usePrimaryResume && hasPrimaryResume && !file;
-    if (!enterDetailsManually && !file && !reuseSaved) { setError('Please attach your résumé.'); return; }
 
-    // The screening ("Additional Screening") section is optional. The QUIZ,
-    // however, must be fully answered — unless its timer already ran out. Point
-    // the applicant at the exact blank question and jump to the quiz step.
-    if (hasQuiz && !quizLocked) {
-      const blankQuiz = job.quiz.questions.findIndex((q) => {
-        const v = quizAnswers[q.id];
-        return v === undefined || v === null || (typeof v === 'string' && !v.trim());
-      });
-      if (blankQuiz !== -1) {
-        setCurrentStep(3);
-        setError(`Please answer all quiz questions — question ${blankQuiz + 1} is unanswered.`);
-        return;
-      }
+    const profile = profileError();
+    if (profile) { setCurrentStep(1); setError(profile); return; }
+
+    const docs = documentsError();
+    if (docs) {
+      setCurrentStep(2);
+      if (docs.manualStep) setManualStep(docs.manualStep);
+      setError(docs.message);
+      return;
     }
+
+    const quiz = quizError();
+    if (quiz) { setCurrentStep(3); setError(quiz); return; }
+
+    const reuseSaved = usePrimaryResume && hasPrimaryResume && !file;
 
     const fd = new FormData();
     if (enterDetailsManually) {
@@ -308,8 +380,11 @@ const CareerApply = () => {
     if (hasQuiz) {
       const qa = Object.entries(quizAnswers).map(([questionId, answer]) => ({ questionId, answer }));
       fd.append('quizAnswers', JSON.stringify(qa));
-      const spent = startedRef.current ? Math.round((Date.now() - startedRef.current) / 1000) : null;
-      fd.append('quizTimeSpent', String(spent ?? ''));
+      // Hand back the server-issued start ticket verbatim. The server derives the
+      // elapsed time from it — we deliberately no longer report our own duration,
+      // which was trusted and therefore forgeable. startedRef still drives the
+      // on-screen countdown only.
+      if (job?.quizTicket) fd.append('quizTicket', job.quizTicket);
       fd.append('quizTabSwitches', String(tabSwitches));
     }
 
@@ -576,9 +651,10 @@ const CareerApply = () => {
                             <input type="email" required value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} placeholder="JANE@EMAIL.COM" className={input} />
                           </div>
                           <div className="space-y-2">
-                            <label className="text-[9px] font-semibold tracking-widest text-slate-400 uppercase">Phone Number</label>
+                            <label className="text-[9px] font-semibold tracking-widest text-slate-400 uppercase">Phone Number *</label>
                             <PhoneInput
                               defaultCountry="IN"
+                              required
                               value={form.phone || undefined}
                               onChange={(v) => setForm((f) => ({ ...f, phone: v || '' }))}
                               className={`luxury-phone ${form.phone && !phoneValid ? 'luxury-phone-error' : ''}`}
@@ -589,8 +665,9 @@ const CareerApply = () => {
                             )}
                           </div>
                           <div className="space-y-2">
-                            <label className="text-[9px] font-semibold tracking-widest text-slate-400 uppercase">Current Location</label>
+                            <label className="text-[9px] font-semibold tracking-widest text-slate-400 uppercase">Current Location *</label>
                             <LocationSearchInput
+                              required
                               value={form.currentLocation}
                               onChange={(val) => setForm((f) => ({ ...f, currentLocation: val }))}
                               placeholder="KOCHI, KERALA"
@@ -598,8 +675,8 @@ const CareerApply = () => {
                             />
                           </div>
                           <div className="space-y-2 sm:col-span-2">
-                            <label className="text-[9px] font-semibold tracking-widest text-slate-400 uppercase">Salary Expectation</label>
-                            <input value={form.salaryExpectation} onChange={(e) => setForm((f) => ({ ...f, salaryExpectation: e.target.value }))} placeholder="e.g. ₹30,000 / month or Negotiable" className={input} />
+                            <label className="text-[9px] font-semibold tracking-widest text-slate-400 uppercase">Salary Expectation *</label>
+                            <input required value={form.salaryExpectation} onChange={(e) => setForm((f) => ({ ...f, salaryExpectation: e.target.value }))} placeholder="e.g. ₹30,000 / month or Negotiable" className={input} />
                           </div>
                         </div>
                       </div>
@@ -676,16 +753,16 @@ const CareerApply = () => {
                                       )}
                                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                                         <div className="space-y-1">
-                                          <label className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">School/University</label>
-                                          <input type="text" value={edu.school} onChange={(e) => updateEducation(idx, 'school', e.target.value)} placeholder="e.g. University of Kerala" className={input} />
+                                          <label className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">School/University *</label>
+                                          <input type="text" required value={edu.school} onChange={(e) => updateEducation(idx, 'school', e.target.value)} placeholder="e.g. University of Kerala" className={input} />
                                         </div>
                                         <div className="space-y-1">
-                                          <label className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">Degree/Major</label>
-                                          <input type="text" value={edu.degree} onChange={(e) => updateEducation(idx, 'degree', e.target.value)} placeholder="e.g. B.Tech Computer Science" className={input} />
+                                          <label className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">Degree/Major *</label>
+                                          <input type="text" required value={edu.degree} onChange={(e) => updateEducation(idx, 'degree', e.target.value)} placeholder="e.g. B.Tech Computer Science" className={input} />
                                         </div>
                                         <div className="space-y-1">
-                                          <label className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">Graduation Year</label>
-                                          <input type="text" value={edu.year} onChange={(e) => updateEducation(idx, 'year', e.target.value)} placeholder="e.g. 2024" className={input} />
+                                          <label className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">Graduation Year *</label>
+                                          <input type="text" required value={edu.year} onChange={(e) => updateEducation(idx, 'year', e.target.value)} placeholder="e.g. 2024" className={input} />
                                         </div>
                                       </div>
                                     </div>
@@ -711,20 +788,20 @@ const CareerApply = () => {
                                       )}
                                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                         <div className="space-y-1">
-                                          <label className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">Company Name</label>
-                                          <input type="text" value={exp.company} onChange={(e) => updateExperience(idx, 'company', e.target.value)} placeholder="e.g. TCS" className={input} />
+                                          <label className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">Company Name *</label>
+                                          <input type="text" required value={exp.company} onChange={(e) => updateExperience(idx, 'company', e.target.value)} placeholder="e.g. TCS" className={input} />
                                         </div>
                                         <div className="space-y-1">
-                                          <label className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">Job Title</label>
-                                          <input type="text" value={exp.title} onChange={(e) => updateExperience(idx, 'title', e.target.value)} placeholder="e.g. Frontend Engineer" className={input} />
+                                          <label className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">Job Title *</label>
+                                          <input type="text" required value={exp.title} onChange={(e) => updateExperience(idx, 'title', e.target.value)} placeholder="e.g. Frontend Engineer" className={input} />
                                         </div>
                                         <div className="space-y-1 sm:col-span-2">
-                                          <label className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">Duration / Date Range</label>
-                                          <input type="text" value={exp.duration} onChange={(e) => updateExperience(idx, 'duration', e.target.value)} placeholder="e.g. June 2022 - Present or 2 Years" className={input} />
+                                          <label className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">Duration / Date Range *</label>
+                                          <input type="text" required value={exp.duration} onChange={(e) => updateExperience(idx, 'duration', e.target.value)} placeholder="e.g. June 2022 - Present or 2 Years" className={input} />
                                         </div>
                                         <div className="space-y-1 sm:col-span-2">
-                                          <label className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">Role Summary / Key Achievements</label>
-                                          <textarea rows="3" value={exp.desc} onChange={(e) => updateExperience(idx, 'desc', e.target.value)} placeholder="Describe your key responsibilities and impact..." className="w-full p-2.5 border text-xs tracking-wide luxury-input focus:outline-none resize-none bg-transparent" />
+                                          <label className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">Role Summary / Key Achievements *</label>
+                                          <textarea rows="3" required value={exp.desc} onChange={(e) => updateExperience(idx, 'desc', e.target.value)} placeholder="Describe your key responsibilities and impact..." className="w-full p-2.5 border text-xs tracking-wide luxury-input focus:outline-none resize-none bg-transparent" />
                                         </div>
                                       </div>
                                     </div>
@@ -750,12 +827,12 @@ const CareerApply = () => {
                                       )}
                                       <div className="space-y-2">
                                         <div className="space-y-1">
-                                          <label className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">Project Name</label>
-                                          <input type="text" value={proj.name} onChange={(e) => updateProject(idx, 'name', e.target.value)} placeholder="e.g. Portfolio Website" className={input} />
+                                          <label className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">Project Name{(proj.name.trim() || proj.desc.trim()) ? ' *' : ''}</label>
+                                          <input type="text" required={Boolean(proj.desc.trim())} value={proj.name} onChange={(e) => updateProject(idx, 'name', e.target.value)} placeholder="e.g. Portfolio Website" className={input} />
                                         </div>
                                         <div className="space-y-1">
-                                          <label className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">Project Description</label>
-                                          <textarea rows="2" value={proj.desc} onChange={(e) => updateProject(idx, 'desc', e.target.value)} placeholder="Briefly describe the technologies used and goals of this project..." className="w-full p-2.5 border text-xs tracking-wide luxury-input focus:outline-none resize-none bg-transparent" />
+                                          <label className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">Project Description{(proj.name.trim() || proj.desc.trim()) ? ' *' : ''}</label>
+                                          <textarea rows="2" required={Boolean(proj.name.trim())} value={proj.desc} onChange={(e) => updateProject(idx, 'desc', e.target.value)} placeholder="Briefly describe the technologies used and goals of this project..." className="w-full p-2.5 border text-xs tracking-wide luxury-input focus:outline-none resize-none bg-transparent" />
                                         </div>
                                       </div>
                                     </div>
@@ -783,9 +860,10 @@ const CareerApply = () => {
                             <span className="text-[9px] font-bold text-slate-400 uppercase tracking-[0.2em]">Additional Screening</span>
                             {answers.map((a, idx) => (
                               <div key={idx} className="space-y-2">
-                                <label className="text-xs font-medium text-slate-600 dark:text-slate-300">{a.question}</label>
+                                <label className="text-xs font-medium text-slate-600 dark:text-slate-300">{a.question} *</label>
                                 <textarea
                                   rows="3"
+                                  required
                                   value={a.answer}
                                   onChange={(e) => setAnswers((prev) => prev.map((x, i) => (i === idx ? { ...x, answer: e.target.value } : x)))}
                                   className="w-full p-4 border text-xs tracking-wide luxury-input focus:outline-none resize-y"
@@ -818,13 +896,13 @@ const CareerApply = () => {
                         )}
                         {job.quiz.questions.map((q, qi) => (
                           <div key={q.id} className="space-y-2">
-                            <label className="text-xs font-medium text-[#1c1c1c] dark:text-[#f5efe9]">{qi + 1}. {q.question}</label>
+                            <label className="text-xs font-medium text-[#1c1c1c] dark:text-[#f5efe9]">{qi + 1}. {q.question} *</label>
                             {q.type === 'mcq' ? (
                               <div className="space-y-2">
                                 {(q.options || []).map((opt, oi) => (
                                   <label key={oi} className={`flex items-center gap-2.5 p-3 rounded-none border cursor-pointer text-xs tracking-wide transition-all ${quizAnswers[q.id] === oi ? 'border-[#c5a880] bg-[#c5a880]/5 text-[#1c1c1c] dark:text-[#e2d1c5]' : 'border-slate-200 dark:border-slate-800 hover:border-[#c5a880]'} ${quizLocked ? 'opacity-60 cursor-not-allowed' : ''}`}>
                                     <input
-                                      type="radio" name={`quiz-${q.id}`} checked={quizAnswers[q.id] === oi} disabled={quizLocked}
+                                      type="radio" name={`quiz-${q.id}`} required={!quizLocked} checked={quizAnswers[q.id] === oi} disabled={quizLocked}
                                       onChange={() => setQuizAnswers((p) => ({ ...p, [q.id]: oi }))}
                                       className="accent-[#c5a880]"
                                     />
@@ -834,7 +912,7 @@ const CareerApply = () => {
                               </div>
                             ) : (
                               <textarea
-                                rows="3" disabled={quizLocked}
+                                rows="3" disabled={quizLocked} required={!quizLocked}
                                 value={quizAnswers[q.id] || ''}
                                 onChange={(e) => setQuizAnswers((p) => ({ ...p, [q.id]: e.target.value }))}
                                 className="w-full p-4 border text-xs tracking-wide luxury-input focus:outline-none resize-y disabled:opacity-60"
@@ -865,7 +943,7 @@ const CareerApply = () => {
                         {manualStep < 4 ? (
                           <button
                             type="button"
-                            onClick={() => setManualStep((s) => s + 1)}
+                            onClick={goManualNext}
                             className="px-8 h-11 bg-[#1c1c1c] text-white hover:bg-[#c5a880] hover:text-[#1c1c1c] text-[10px] font-medium tracking-widest uppercase rounded-none transition duration-300 cursor-pointer"
                           >
                             Next
@@ -873,16 +951,15 @@ const CareerApply = () => {
                         ) : currentStep < steps.length ? (
                           <button
                             type="button"
-                            disabled={!manualResume.skills.trim()}
-                            onClick={() => setCurrentStep((s) => s + 1)}
-                            className="px-8 h-11 bg-[#1c1c1c] text-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[#c5a880] hover:text-[#1c1c1c] text-[10px] font-medium tracking-widest uppercase rounded-none transition duration-300 cursor-pointer"
+                            onClick={goNext}
+                            className="px-8 h-11 bg-[#1c1c1c] text-white hover:bg-[#c5a880] hover:text-[#1c1c1c] text-[10px] font-medium tracking-widest uppercase rounded-none transition duration-300 cursor-pointer"
                           >
                             Next
                           </button>
                         ) : (
                           <button
                             type="submit"
-                            disabled={submitting || !manualResume.skills.trim()}
+                            disabled={submitting}
                             className="flex items-center justify-center px-8 h-11 bg-[#1c1c1c] text-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[#c5a880] hover:text-[#1c1c1c] text-[10px] font-medium tracking-widest uppercase rounded-none transition duration-300 cursor-pointer"
                           >
                             {submitting ? <Loader2 size={14} className="animate-spin" /> : <span>Submit Application</span>}
@@ -912,8 +989,7 @@ const CareerApply = () => {
                         {currentStep < steps.length ? (
                           <button
                             type="button"
-                            disabled={!canGoNext()}
-                            onClick={() => setCurrentStep((s) => s + 1)}
+                            onClick={goNext}
                             className="px-8 h-11 bg-[#1c1c1c] text-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[#c5a880] hover:text-[#1c1c1c] text-[10px] font-medium tracking-widest uppercase rounded-none transition duration-300 cursor-pointer"
                           >
                             Next
@@ -921,7 +997,7 @@ const CareerApply = () => {
                         ) : (
                           <button
                             type="submit"
-                            disabled={submitting || (currentStep === 2 && !canGoNext())}
+                            disabled={submitting}
                             className="flex items-center justify-center px-8 h-11 bg-[#1c1c1c] text-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[#c5a880] hover:text-[#1c1c1c] text-[10px] font-medium tracking-widest uppercase rounded-none transition duration-300 cursor-pointer"
                           >
                             {submitting ? <Loader2 size={14} className="animate-spin" /> : <span>Submit Application</span>}

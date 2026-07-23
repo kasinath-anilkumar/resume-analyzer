@@ -12,6 +12,12 @@ dist
 dist-ssr
 *.local
 
+# Environment. VITE_API_URL and anything else here is baked into the public
+# bundle, but the file can still pick up values that shouldn't be committed.
+.env
+.env.*
+!.env.example
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

@@ -3,8 +3,10 @@
 -- =============================================================================
 --  Run this once in the Supabase SQL Editor (Dashboard → SQL → New query) to
 --  create every table the backend needs. The app talks to these tables via
---  @supabase/supabase-js using the service-role key, so Row Level Security is
---  left disabled (all access is server-side and already gated by JWT + roles).
+--  @supabase/supabase-js using the service-role key (which bypasses RLS), and
+--  all access is gated server-side by JWT + roles. RLS is nonetheless ENABLED
+--  with no policies at the end of this file, so the publishable `anon` key
+--  cannot reach the data directly — see the ROW LEVEL SECURITY section.
 --
 --  Nested/array data that used to live inside Mongo documents is stored as:
 --    - text[]  for simple string lists (skills, certifications, departments…)
@@ -367,3 +369,48 @@ language sql stable as $$
   order by c.embedding_vec <=> (p_job_embedding)::vector
   limit greatest(coalesce(p_limit, 250), 1)
 $$;
+
+-- ===========================================================================
+--  ROW LEVEL SECURITY — lock the tables against the public API roles
+-- ===========================================================================
+--  Why this exists (it supersedes the "RLS is left disabled" note at the top
+--  of this file):
+--
+--  Supabase exposes every table in `public` through PostgREST, and the project's
+--  `anon` key is DESIGNED to be shipped in client code — it is not a secret.
+--  New projects also grant `anon` / `authenticated` table privileges by default.
+--  With RLS disabled those grants apply unfiltered, so anyone holding that
+--  publishable key could read and write every candidate, résumé URL, applicant
+--  account and audit row directly, completely bypassing this application's JWT
+--  and role checks.
+--
+--  The backend authenticates with the SERVICE ROLE key, which carries BYPASSRLS.
+--  So enabling RLS with NO policies costs the app nothing — every server query
+--  keeps working exactly as before — while reducing the anon/authenticated roles
+--  to zero access. Deny-by-default: adding a table later is safe by omission.
+--
+--  Re-runnable: enabling RLS twice and revoking a privilege twice are both no-ops.
+-- ---------------------------------------------------------------------------
+alter table users         enable row level security;
+alter table applicants    enable row level security;
+alter table jobs          enable row level security;
+alter table candidates    enable row level security;
+alter table notifications enable row level security;
+alter table settings      enable row level security;
+alter table audit_log     enable row level security;
+
+-- Belt and braces: strip the default PostgREST grants as well, so the tables are
+-- unreachable for those roles even if RLS were ever switched off again.
+revoke all on all tables    in schema public from anon, authenticated;
+revoke all on all sequences in schema public from anon, authenticated;
+revoke all on all functions in schema public from anon, authenticated;
+
+-- And stop future tables/functions from silently re-granting themselves.
+alter default privileges in schema public revoke all on tables    from anon, authenticated;
+alter default privileges in schema public revoke all on sequences from anon, authenticated;
+alter default privileges in schema public revoke all on functions from anon, authenticated;
+
+--  NOTE — storage is configured separately: the résumé bucket must be set to
+--  PRIVATE in the Supabase dashboard (Storage → bucket → Public = off). The app
+--  never hands out a permanent object URL; it mints short-lived signed URLs via
+--  StorageService.getSignedUrl behind authenticated, ownership-checked endpoints.

@@ -1,0 +1,25 @@
+# Root-level safety net. The backend and frontend each have their own
+# .gitignore, but neither covers a file created at the repo root — and an
+# env file committed once stays in git history even after deletion.
+
+# Environment / secrets (any depth)
+.env
+.env.*
+!.env.example
+
+# Dependencies / build output
+node_modules
+dist
+build
+
+# Logs
+logs
+*.log
+npm-debug.log*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea
+.vscode/*
+!.vscode/extensions.json

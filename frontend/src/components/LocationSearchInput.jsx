@@ -1,12 +1,17 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { MapPin, Loader2 } from 'lucide-react';
 
-export default function LocationSearchInput({ value, onChange, placeholder = "Search location...", className = "" }) {
+export default function LocationSearchInput({ value, onChange, placeholder = "Search location...", className = "", required = false }) {
   const [query, setQuery] = useState(value || '');
   const [suggestions, setSuggestions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
   const containerRef = useRef(null);
+  // True only while the user is actually typing. Gates the lookup so it fires on
+  // real input but not when the field is prefilled from the parent or filled in
+  // by picking a suggestion — both of which would otherwise trigger a pointless
+  // search for text the user just accepted.
+  const typingRef = useRef(false);
 
   // Sync internal state when external value changes
   useEffect(() => {
@@ -30,8 +35,10 @@ export default function LocationSearchInput({ value, onChange, placeholder = "Se
       return;
     }
 
-    // Only search if the query doesn't match the selected value
-    if (query === value) {
+    // Only look up what the user typed. (This used to compare query against
+    // `value`; now that every keystroke is published upward they are always
+    // equal, so that check would suppress every search.)
+    if (!typingRef.current) {
       return;
     }
 
@@ -75,9 +82,10 @@ export default function LocationSearchInput({ value, onChange, placeholder = "Se
     }, 500);
 
     return () => clearTimeout(delay);
-  }, [query, value]);
+  }, [query]);
 
   const selectItem = (item) => {
+    typingRef.current = false; // accepted a suggestion — don't re-search it
     setQuery(item.displayName);
     onChange(item.displayName);
     setOpen(false);
@@ -87,12 +95,16 @@ export default function LocationSearchInput({ value, onChange, placeholder = "Se
     <div ref={containerRef} className="relative w-full">
       <input
         type="text"
+        required={required}
         value={query}
         onChange={(e) => {
+          // Publish EVERY keystroke to the parent. Previously only picking a
+          // suggestion did this, so a typed-but-unselected city was silently
+          // dropped on save — and on the apply form, which now requires a
+          // location, it read as empty while visibly containing text.
+          typingRef.current = true;
           setQuery(e.target.value);
-          if (!e.target.value) {
-            onChange('');
-          }
+          onChange(e.target.value);
         }}
         placeholder={placeholder}
         className={className}
