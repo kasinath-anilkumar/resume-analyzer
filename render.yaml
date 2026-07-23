@@ -1,31 +1,85 @@
 # Render Blueprint for the PARAKKAT ATS backend.
-# Optional: in Render you can "New → Blueprint" and point it at this repo, or
-# just create a Web Service manually with the same settings (see DEPLOY.md).
-# Values marked `sync: false` are secrets — set them in the Render dashboard.
+# In Render: "New -> Blueprint" and point it at this repo, or create a Web
+# Service manually with the same settings (see DEPLOY.md).
+#
+# `sync: false` means "prompt me in the dashboard" — used for every secret and
+# for values that differ per environment. Nothing secret is stored in this file.
 services:
   - type: web
     name: parakkat-ats-api
     runtime: node
     rootDir: backend
     plan: free
-    buildCommand: npm install
+    # `npm ci` installs exactly what package-lock.json pins, so a deploy can't
+    # silently pick up a different transitive version than the one tested.
+    buildCommand: npm ci
     startCommand: npm start
-    healthCheckPath: /
+    healthCheckPath: /api/health
     envVars:
       - key: NODE_VERSION
         value: "20"
+
+      # REQUIRED. Also switches on the startup guards below — without it the
+      # server treats a blank CLIENT_URL/APP_URL as acceptable and boots into a
+      # deployment that is silently broken.
+      - key: NODE_ENV
+        value: production
+
+      # --- Auth & encryption -------------------------------------------------
+      # Generate a NEW value: openssl rand -base64 48
+      # Do NOT reuse a local development secret.
       - key: JWT_SECRET
         sync: false
+      # Distinct key encrypting stored provider credentials. Blank falls back to
+      # JWT_SECRET, so one leak would compromise both.
+      - key: SETTINGS_ENC_KEY
+        sync: false
+
+      # --- Supabase ----------------------------------------------------------
       - key: SUPABASE_URL
         sync: false
+      # service_role key. Server-side only — it bypasses RLS.
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
       - key: SUPABASE_BUCKET
         value: resume
-      # Your Vercel production URL, e.g. https://your-app.vercel.app
+
+      # --- Public URLs (REQUIRED: the server refuses to boot without these) ---
+      # Frontend origin(s) allowed by CORS, comma-separated, no trailing slash.
+      # e.g. https://parakkat-ats.vercel.app
+      # Blank => localhost-only allow-list => every real request is CORS-blocked.
       - key: CLIENT_URL
         sync: false
-      # AI provider (optional — can also be configured in-app via Settings)
+      # Public frontend URL used to build password-reset links in emails.
+      # Usually the first CLIENT_URL entry. Blank => reset emails point at
+      # localhost and are unusable.
+      - key: APP_URL
+        sync: false
+      # Keep false in production so only CLIENT_URL origins are trusted. Set to
+      # true only while you genuinely need *.vercel.app preview deploys to work.
+      - key: ALLOW_VERCEL_PREVIEWS
+        value: "false"
+
+      # --- Email (Resend) ----------------------------------------------------
+      # Without these, password resets and interview invites are silently
+      # skipped — the app keeps working but sends nothing.
+      - key: RESEND_API_KEY
+        sync: false
+      # Verified sender on your own domain, e.g. "PARAKKAT ATS <hiring@example.com>"
+      - key: EMAIL_FROM
+        sync: false
+
+      # --- Background worker -------------------------------------------------
+      # Unset/absent => the resume-analysis worker runs IN-PROCESS, which is
+      # right for a single instance. Set to "false" ONLY if you also run a
+      # separate worker service, so the queue isn't drained from two places.
+      - key: RUN_WORKER
+        sync: false
+
+      # --- AI provider (optional) --------------------------------------------
+      # Normally configured in-app (Settings -> AI) and stored encrypted in the
+      # database. These are only a fallback, used when AI_PROVIDER matches and
+      # the matching key is non-empty.
       - key: AI_PROVIDER
         value: mock
       - key: OPENAI_API_KEY
@@ -36,3 +90,10 @@ services:
         sync: false
       - key: NVIDIA_API_KEY
         sync: false
+
+      # NOT set on purpose:
+      #   PORT          Render injects it; the server reads process.env.PORT.
+      #   DATABASE_URL  only needed locally for `npm run db:migrate`.
+      #   ADMIN_*       only read by `npm run seed:admin`, never at runtime —
+      #                 setting it here would park a plaintext password in the
+      #                 production environment for no benefit.
